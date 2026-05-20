@@ -1,9 +1,6 @@
-name: Release
+name: Full Updater Release
 
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
 
 permissions:

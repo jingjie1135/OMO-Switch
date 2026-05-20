@@ -1,0 +1,112 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: 构建并发布 - Windows (x64)
+    runs-on: windows-latest
+
+    steps:
+      - name: 拉取源代码
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 安装 Node.js 环境
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: 安装 Rust 环境
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust 缓存
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: 获取构建时间
+        shell: pwsh
+        run: |
+          $buildTime = (Get-Date).ToUniversalTime().AddHours(8).ToString("yyyy-MM-dd HH:mm:ss")
+          echo "BUILD_TIME=$buildTime" >> $env:GITHUB_ENV
+
+      - name: 生成 Release Notes
+        id: release_notes
+        shell: bash
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 ${{ github.ref_name }}^ 2>/dev/null || git rev-list --max-parents=0 HEAD)
+          echo "Previous tag: $PREV_TAG"
+
+          LOGS=$(git log $PREV_TAG..${{ github.ref_name }} --pretty=format:"%s")
+
+          FEATS=""
+          FIXES=""
+          DOCS=""
+          OTHERS=""
+
+          while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            clean_line=$(echo "$line" | sed 's/\\/\\\\/g; s/`/\\`/g')
+
+            if [[ $line =~ ^feat ]]; then
+              FEATS="$FEATS\n- ${clean_line#feat: }"
+            elif [[ $line =~ ^fix ]]; then
+              FIXES="$FIXES\n- ${clean_line#fix: }"
+            elif [[ $line =~ ^docs ]]; then
+              DOCS="$DOCS\n- ${clean_line#docs: }"
+            elif [[ $line =~ ^refactor ]] || [[ $line =~ ^perf ]]; then
+              FIXES="$FIXES\n- ${clean_line}"
+            else
+              OTHERS="$OTHERS\n- ${clean_line}"
+            fi
+          done <<< "$LOGS"
+
+          BODY=""
+          [ -n "$FEATS" ] && BODY="$BODY\n### 🚀 新功能$FEATS\n"
+          [ -n "$FIXES" ] && BODY="$BODY\n### 🔧 修复与优化$FIXES\n"
+          [ -n "$DOCS" ] && BODY="$BODY\n### 📝 文档更新$DOCS\n"
+          [ -n "$OTHERS" ] && BODY="$BODY\n### 📦 其他改动$OTHERS\n"
+          [ -z "$BODY" ] && BODY="本次发布包含内部优化与稳定性提升。"
+
+          {
+            echo "body<<EOF"
+            echo -e "$BODY"
+            echo ""
+            echo "---"
+            echo "*构建时间: ${{ env.BUILD_TIME }}*"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: 构建并发布
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          args: --bundles nsis --no-sign
+          tagName: ${{ github.ref_name }}
+          releaseName: 'OMO Switch ${{ github.ref_name }}'
+          releaseBody: |
+            ## OMO Switch - AI 模型切换管理工具
+
+            ### 🚀 本次更新
+            ${{ steps.release_notes.outputs.body }}
+
+            ---
+            *由 GitHub Actions 自动构建发布 - ${{ env.BUILD_TIME }}*
+          releaseDraft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          includeUpdaterJson: false
+          includeRelease: true
