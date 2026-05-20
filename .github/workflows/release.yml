@@ -130,7 +130,7 @@ jobs:
             ---
             *由 GitHub Actions 自动构建发布 - ${{ env.BUILD_TIME }}*
           releaseDraft: false
-          prerelease: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
           includeUpdaterJson: true
           includeRelease: true
 
@@ -148,6 +148,10 @@ jobs:
             echo "TAURI_SIGNING_PRIVATE_KEY is empty, cannot sign updater bundles." >&2
             exit 1
           fi
+          if [ -z "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" ]; then
+            echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD is empty, cannot sign updater bundles." >&2
+            exit 1
+          fi
 
           TAG="${{ github.ref_name }}"
           REPO="${{ github.repository }}"
@@ -160,7 +164,7 @@ jobs:
             exit 1
           fi
 
-          npm run -s tauri -- signer sign -p "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" "$UPDATE_BUNDLE"
+          npm run -s tauri -- signer sign -p "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" "$UPDATE_BUNDLE"
           SIG_PATH="${UPDATE_BUNDLE}.sig"
           if [ ! -f "$SIG_PATH" ]; then
             echo "Signature not generated: $SIG_PATH" >&2
@@ -198,6 +202,9 @@ jobs:
 
           if (-not $env:TAURI_SIGNING_PRIVATE_KEY) {
             throw "TAURI_SIGNING_PRIVATE_KEY is empty, cannot sign updater bundle."
+          }
+          if (-not $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD) {
+            throw "TAURI_SIGNING_PRIVATE_KEY_PASSWORD is empty, cannot sign updater bundle."
           }
 
           $targetDirs = @(

@@ -25,7 +25,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDhBRENFQUY5NTIwNTUwQ0UKUldUT1VBVlMrZXJjaWpMbndKcEozMGU3cHBsbWdwMVYxZnVDb3NtVWJBQlFMVDcraGlyRmZxbWgK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEU3OTlCOUNBNDZFOTZBOTkKUldTWmF1bEd5cm1aNXo0ZmFZeXRNWkJ1NjNranB1Zm9FNEVNWlhDRXFib0VBQVpRUGxsRVB6N3gK",
       "endpoints": [
         "https://github.com/ShellMonster/OMO-Switch/releases/latest/download/latest.json"
       ]
