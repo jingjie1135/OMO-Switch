@@ -191,10 +191,10 @@ The project integrates Tauri official Updater plugin for automatic update checki
 
 ### Setup Steps
 
-1. **Generate Signing Key** (once, keep private key safe)
+1. **Generate Signing Key** (once, keep the private key and password safe)
 ```bash
 cd src-tauri
-bun run tauri signer generate -- -w ~/.tauri/omo-switch.key
+cargo tauri signer generate --ci -p "your-strong-password" -w ~/.tauri/omo-switch.key
 ```
 
 2. **Configure Public Key**: Add public key to `src-tauri/tauri.conf.json`
@@ -210,7 +210,7 @@ bun run tauri signer generate -- -w ~/.tauri/omo-switch.key
 
 3. **Configure GitHub Secrets**:
    - `TAURI_SIGNING_PRIVATE_KEY`: Private key content
-   - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`: Private key password (if set)
+   - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`: Password used when generating the private key
 
 4. **Release Updates**: Push new version tag to trigger automatic release
 

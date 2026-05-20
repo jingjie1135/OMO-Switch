@@ -133,17 +133,17 @@ npm run tauri:build
 
 ### 설정 단계
 
-1. **서명 키 생성** (한 번만, 개인 키를 안전하게 보관)
+1. **서명 키 생성** (한 번만, 개인 키와 비밀번호를 안전하게 보관)
 ```bash
 cd src-tauri
-bun run tauri signer generate -- -w ~/.tauri/omo-switch.key
+cargo tauri signer generate --ci -p "your-strong-password" -w ~/.tauri/omo-switch.key
 ```
 
 2. **공개 키 설정**: `src-tauri/tauri.conf.json`에 공개 키 추가
 
 3. **GitHub Secrets 설정**:
    - `TAURI_SIGNING_PRIVATE_KEY`: 개인 키 파일 내용
-   - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`: 개인 키 비밀번호(설정된 경우)
+   - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`: 개인 키를 생성할 때 사용한 비밀번호
 
 ---
 

@@ -133,17 +133,17 @@ npm run tauri:build
 
 ### 配置步驟
 
-1. **產生簽章金鑰**（僅需一次，妥善儲存私鑰）
+1. **產生簽章金鑰**（僅需一次，妥善儲存私鑰和密碼）
 ```bash
 cd src-tauri
-bun run tauri signer generate -- -w ~/.tauri/omo-switch.key
+cargo tauri signer generate --ci -p "你的強密碼" -w ~/.tauri/omo-switch.key
 ```
 
 2. **配置公鑰**：將公鑰內容寫入 `src-tauri/tauri.conf.json`
 
 3. **配置 GitHub Secrets**：
    - `TAURI_SIGNING_PRIVATE_KEY`: 私鑰檔案內容
-   - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`: 私鑰密碼（如有）
+   - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`: 產生私鑰時使用的密碼
 
 ---
 

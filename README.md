@@ -226,11 +226,15 @@ git push origin v1.0.0
 
 ### 配置步骤
 
-1. **生成签名密钥**（仅需一次，妥善保存私钥）
+1. **生成签名密钥**（仅需一次，妥善保存私钥和密码）
 ```bash
 cd src-tauri
-bun run tauri signer generate -- -w ~/.tauri/omo-switch.key
+cargo tauri signer generate --ci -p "你的强密码" -w ~/.tauri/omo-switch.key
 ```
+
+生成后会得到：
+- `~/.tauri/omo-switch.key`：私钥，只能放在本地或 GitHub Secrets，不能提交到仓库
+- `~/.tauri/omo-switch.key.pub`：公钥，需要写入应用配置并提交
 
 2. **配置公钥**：将公钥内容写入 `src-tauri/tauri.conf.json`
 ```json
@@ -244,10 +248,23 @@ bun run tauri signer generate -- -w ~/.tauri/omo-switch.key
 ```
 
 3. **配置 GitHub Secrets**：
-   - `TAURI_SIGNING_PRIVATE_KEY`: 私钥文件内容
-   - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`: 私钥密码（如有）
+   - `TAURI_SIGNING_PRIVATE_KEY`: `~/.tauri/omo-switch.key` 的完整文件内容
+   - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`: 生成私钥时传入的密码
+
+   在本地查看私钥内容后，复制到 GitHub 仓库的 `Settings` → `Secrets and variables` → `Actions`：
+   ```bash
+   cat ~/.tauri/omo-switch.key
+   ```
 
 4. **发布更新**：推送新版本标签后，Release 将自动包含更新文件
+
+5. **测试发布流程**：创建带连字符的测试标签并推送到 GitHub，确认 Release assets 中包含 `latest.json`。带连字符的标签会被工作流标记为 prerelease，避免占用 `/releases/latest`。
+```bash
+git tag v1.2.13-test.1
+git push origin v1.2.13-test.1
+```
+
+测试完成后，如不需要保留该测试版本，可在 GitHub Release 页面删除对应 Release 和 tag。
 
 ---
 
