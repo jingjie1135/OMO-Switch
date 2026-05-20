@@ -212,11 +212,13 @@ npm run tauri:build
 ```
 
 ### 5. 自动化构建 (GitHub Actions)
-推送带有版本号的标签即可触发自动构建：
+推送带有版本号的标签即可触发默认 Windows x64 安装包构建与发布：
 ```bash
 git tag v1.0.0
 git push origin v1.0.0
 ```
+
+完整 Updater 发布工作流需要在 GitHub Actions 中手动运行 `Full Updater Release`。
 
 ---
 
@@ -256,9 +258,9 @@ cargo tauri signer generate --ci -p "你的强密码" -w ~/.tauri/omo-switch.key
    cat ~/.tauri/omo-switch.key
    ```
 
-4. **发布更新**：推送新版本标签后，Release 将自动包含更新文件
+4. **发布更新**：在 GitHub Actions 中手动运行 `Full Updater Release` 后，Release 将包含 updater 更新文件
 
-5. **测试发布流程**：创建带连字符的测试标签并推送到 GitHub，确认 Release assets 中包含 `latest.json`。带连字符的标签会被工作流标记为 prerelease，避免占用 `/releases/latest`。
+5. **测试发布流程**：创建带连字符的测试标签并推送到 GitHub，默认 `Release` 工作流会生成 Windows x64 安装包 prerelease。若要测试 updater 的 `latest.json`，请手动运行 `Full Updater Release`。
 ```bash
 git tag v1.2.13-test.1
 git push origin v1.2.13-test.1

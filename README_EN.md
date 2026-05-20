@@ -212,7 +212,7 @@ cargo tauri signer generate --ci -p "your-strong-password" -w ~/.tauri/omo-switc
    - `TAURI_SIGNING_PRIVATE_KEY`: Private key content
    - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`: Password used when generating the private key
 
-4. **Release Updates**: Push new version tag to trigger automatic release
+4. **Release Updates**: Push a new version tag to trigger the default Windows x64 installer release. To publish updater files, run `Full Updater Release` manually in GitHub Actions.
 
 ---
 
