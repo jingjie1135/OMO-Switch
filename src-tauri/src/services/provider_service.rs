@@ -400,8 +400,10 @@ mod tests {
         std::fs::create_dir_all(&temp_dir).unwrap();
 
         let original_home = std::env::var("HOME").ok();
+        let original_userprofile = std::env::var("USERPROFILE").ok();
         unsafe {
             std::env::set_var("HOME", &temp_dir);
+            std::env::set_var("USERPROFILE", &temp_dir);
         }
 
         let config_dir = temp_dir.join(".config").join("opencode");
@@ -440,6 +442,11 @@ mod tests {
                 std::env::set_var("HOME", home);
             } else {
                 std::env::remove_var("HOME");
+            }
+            if let Some(userprofile) = original_userprofile {
+                std::env::set_var("USERPROFILE", userprofile);
+            } else {
+                std::env::remove_var("USERPROFILE");
             }
         }
 

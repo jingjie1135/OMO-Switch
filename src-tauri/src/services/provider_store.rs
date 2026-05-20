@@ -5,6 +5,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use crate::services::config_service::write_string_atomically;
+use crate::services::path_service;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuthEntry {
@@ -53,25 +54,15 @@ pub struct ProviderPresetEntry {
 }
 
 pub fn get_auth_file_path() -> Result<PathBuf, String> {
-    let home = std::env::var("HOME").map_err(|_| "无法获取 HOME 环境变量".to_string())?;
-    Ok(PathBuf::from(home)
-        .join(".local")
-        .join("share")
-        .join("opencode")
-        .join("auth.json"))
+    path_service::opencode_auth_file()
 }
 
 pub fn get_opencode_config_path() -> Result<PathBuf, String> {
-    let home = std::env::var("HOME").map_err(|_| "无法获取 HOME 环境变量".to_string())?;
-    Ok(PathBuf::from(home)
-        .join(".config")
-        .join("opencode")
-        .join("opencode.json"))
+    path_service::opencode_config_write_file()
 }
 
 fn get_omo_cache_dir() -> Result<PathBuf, String> {
-    let home = std::env::var("HOME").map_err(|_| "无法获取 HOME 环境变量".to_string())?;
-    Ok(PathBuf::from(home).join(".cache").join("oh-my-opencode"))
+    path_service::omo_cache_dir()
 }
 
 pub fn get_provider_models_path() -> Result<PathBuf, String> {
@@ -83,10 +74,7 @@ pub fn get_connected_providers_path() -> Result<PathBuf, String> {
 }
 
 pub fn get_provider_icon_cache_path(provider_id: &str) -> Result<PathBuf, String> {
-    let home = std::env::var("HOME").map_err(|_| "无法获取 HOME 环境变量".to_string())?;
-    Ok(PathBuf::from(home)
-        .join(".cache")
-        .join("oh-my-opencode")
+    Ok(path_service::omo_cache_dir()?
         .join("provider-icons")
         .join(format!("{}.png", provider_id)))
 }
@@ -118,14 +106,17 @@ pub fn write_auth_file(auth: &HashMap<String, AuthEntry>) -> Result<(), String> 
 }
 
 pub fn read_opencode_config() -> Result<Value, String> {
-    let config_path = get_opencode_config_path()?;
-    if !config_path.exists() {
-        return Ok(json!({}));
+    for config_path in path_service::opencode_config_candidates()? {
+        if !config_path.exists() {
+            continue;
+        }
+
+        let content =
+            fs::read_to_string(&config_path).map_err(|e| format!("读取配置文件失败: {}", e))?;
+        return path_service::parse_json_or_jsonc(&content, "解析 JSON 失败");
     }
 
-    let content =
-        fs::read_to_string(&config_path).map_err(|e| format!("读取配置文件失败: {}", e))?;
-    serde_json::from_str(&content).map_err(|e| format!("解析 JSON 失败: {}", e))
+    Ok(json!({}))
 }
 
 pub fn write_opencode_config(config: &Value) -> Result<(), String> {
@@ -309,14 +300,71 @@ mod tests {
 
     #[test]
     #[serial]
+    fn test_reads_auth_and_jsonc_config_with_userprofile_when_home_missing() {
+        let temp_dir = std::env::temp_dir().join("omo-provider-store-userprofile-test");
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let original_home = std::env::var("HOME").ok();
+        let original_userprofile = std::env::var("USERPROFILE").ok();
+        unsafe {
+            std::env::remove_var("HOME");
+            std::env::set_var("USERPROFILE", &temp_dir);
+        }
+
+        let auth_dir = temp_dir.join(".local").join("share").join("opencode");
+        std::fs::create_dir_all(&auth_dir).unwrap();
+        std::fs::write(
+            auth_dir.join("auth.json"),
+            r#"{"openai":{"type":"api","key":"sk-test"}}"#,
+        )
+        .unwrap();
+
+        let config_dir = temp_dir.join(".config").join("opencode");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        std::fs::write(
+            config_dir.join("opencode.jsonc"),
+            r#"{
+              // JSONC should be accepted
+              "provider": {"openai": {"models": {"gpt-5": {}}}}
+            }"#,
+        )
+        .unwrap();
+
+        let auth = read_auth_file().unwrap();
+        let config = read_opencode_config().unwrap();
+
+        assert_eq!(auth.get("openai").and_then(|entry| entry.key.as_deref()), Some("sk-test"));
+        assert!(config["provider"]["openai"]["models"]["gpt-5"].is_object());
+
+        unsafe {
+            if let Some(home) = original_home {
+                std::env::set_var("HOME", home);
+            } else {
+                std::env::remove_var("HOME");
+            }
+            if let Some(userprofile) = original_userprofile {
+                std::env::set_var("USERPROFILE", userprofile);
+            } else {
+                std::env::remove_var("USERPROFILE");
+            }
+        }
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    #[serial]
     fn test_read_provider_models_supports_string_and_object_entries() {
         let temp_dir = std::env::temp_dir().join("omo-provider-store-models-test");
         let _ = std::fs::remove_dir_all(&temp_dir);
         std::fs::create_dir_all(&temp_dir).unwrap();
 
         let original_home = std::env::var("HOME").ok();
+        let original_userprofile = std::env::var("USERPROFILE").ok();
         unsafe {
             std::env::set_var("HOME", &temp_dir);
+            std::env::set_var("USERPROFILE", &temp_dir);
         }
 
         let cache_dir = temp_dir.join(".cache").join("oh-my-opencode");
@@ -349,6 +397,11 @@ mod tests {
             } else {
                 std::env::remove_var("HOME");
             }
+            if let Some(userprofile) = original_userprofile {
+                std::env::set_var("USERPROFILE", userprofile);
+            } else {
+                std::env::remove_var("USERPROFILE");
+            }
         }
 
         let _ = std::fs::remove_dir_all(&temp_dir);
@@ -362,8 +415,10 @@ mod tests {
         std::fs::create_dir_all(&temp_dir).unwrap();
 
         let original_home = std::env::var("HOME").ok();
+        let original_userprofile = std::env::var("USERPROFILE").ok();
         unsafe {
             std::env::set_var("HOME", &temp_dir);
+            std::env::set_var("USERPROFILE", &temp_dir);
         }
 
         let auth_dir = temp_dir.join(".local").join("share").join("opencode");
@@ -379,6 +434,11 @@ mod tests {
             } else {
                 std::env::remove_var("HOME");
             }
+            if let Some(userprofile) = original_userprofile {
+                std::env::set_var("USERPROFILE", userprofile);
+            } else {
+                std::env::remove_var("USERPROFILE");
+            }
         }
 
         let _ = std::fs::remove_dir_all(&temp_dir);
@@ -392,8 +452,10 @@ mod tests {
         std::fs::create_dir_all(&temp_dir).unwrap();
 
         let original_home = std::env::var("HOME").ok();
+        let original_userprofile = std::env::var("USERPROFILE").ok();
         unsafe {
             std::env::set_var("HOME", &temp_dir);
+            std::env::set_var("USERPROFILE", &temp_dir);
         }
 
         let config_dir = temp_dir.join(".config").join("opencode");
@@ -422,6 +484,11 @@ mod tests {
                 std::env::set_var("HOME", home);
             } else {
                 std::env::remove_var("HOME");
+            }
+            if let Some(userprofile) = original_userprofile {
+                std::env::set_var("USERPROFILE", userprofile);
+            } else {
+                std::env::remove_var("USERPROFILE");
             }
         }
 

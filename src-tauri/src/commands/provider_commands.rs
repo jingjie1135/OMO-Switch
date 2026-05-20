@@ -1,4 +1,4 @@
-use serde_json::{json, Value};
+use serde_json::json;
 use std::collections::HashMap;
 
 use crate::services::{provider_service, provider_store};
@@ -34,6 +34,7 @@ const PROVIDER_DOMAINS: &[(&str, &str)] = &[
 pub type ProviderInfo = provider_service::ProviderInfo;
 pub type ProviderConfigSnapshot = provider_service::ProviderConfigSnapshot;
 pub type ConnectionTestResult = provider_service::ConnectionTestResult;
+#[cfg(test)]
 pub(crate) type AuthEntry = provider_store::AuthEntry;
 
 fn get_provider_icon_cache_path(provider_id: &str) -> Result<std::path::PathBuf, String> {
@@ -188,6 +189,7 @@ pub fn get_provider_icon(provider_id: String) -> Result<Option<String>, String> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::Value;
     use serial_test::serial;
 
     #[test]
@@ -290,8 +292,10 @@ mod tests {
         std::fs::create_dir_all(&temp_dir).expect("创建临时目录失败");
 
         let original_home = std::env::var("HOME").ok();
+        let original_userprofile = std::env::var("USERPROFILE").ok();
         unsafe {
             std::env::set_var("HOME", &temp_dir);
+            std::env::set_var("USERPROFILE", &temp_dir);
         }
 
         let cache_dir = temp_dir.join(".cache").join("oh-my-opencode");
@@ -319,6 +323,11 @@ mod tests {
             } else {
                 std::env::remove_var("HOME");
             }
+            if let Some(userprofile) = original_userprofile {
+                std::env::set_var("USERPROFILE", userprofile);
+            } else {
+                std::env::remove_var("USERPROFILE");
+            }
         }
 
         assert!(
@@ -343,8 +352,10 @@ mod tests {
         std::fs::create_dir_all(&temp_dir).expect("创建临时目录失败");
 
         let original_home = std::env::var("HOME").ok();
+        let original_userprofile = std::env::var("USERPROFILE").ok();
         unsafe {
             std::env::set_var("HOME", &temp_dir);
+            std::env::set_var("USERPROFILE", &temp_dir);
         }
 
         let result = add_custom_model("test-provider".to_string(), "test-model-1".to_string());
@@ -354,6 +365,11 @@ mod tests {
                 std::env::set_var("HOME", home);
             } else {
                 std::env::remove_var("HOME");
+            }
+            if let Some(userprofile) = original_userprofile {
+                std::env::set_var("USERPROFILE", userprofile);
+            } else {
+                std::env::remove_var("USERPROFILE");
             }
         }
 
@@ -380,8 +396,10 @@ mod tests {
         std::fs::create_dir_all(&temp_dir).expect("创建临时目录失败");
 
         let original_home = std::env::var("HOME").ok();
+        let original_userprofile = std::env::var("USERPROFILE").ok();
         unsafe {
             std::env::set_var("HOME", &temp_dir);
+            std::env::set_var("USERPROFILE", &temp_dir);
         }
 
         let result1 = add_custom_model("test-provider".to_string(), "test-model-2".to_string());
@@ -394,6 +412,11 @@ mod tests {
                 std::env::set_var("HOME", home);
             } else {
                 std::env::remove_var("HOME");
+            }
+            if let Some(userprofile) = original_userprofile {
+                std::env::set_var("USERPROFILE", userprofile);
+            } else {
+                std::env::remove_var("USERPROFILE");
             }
         }
 
@@ -421,8 +444,10 @@ mod tests {
         std::fs::create_dir_all(&temp_dir).expect("创建临时目录失败");
 
         let original_home = std::env::var("HOME").ok();
+        let original_userprofile = std::env::var("USERPROFILE").ok();
         unsafe {
             std::env::set_var("HOME", &temp_dir);
+            std::env::set_var("USERPROFILE", &temp_dir);
         }
 
         let add_result = add_custom_model("test-provider".to_string(), "test-model-3".to_string());
@@ -440,6 +465,11 @@ mod tests {
                 std::env::set_var("HOME", home);
             } else {
                 std::env::remove_var("HOME");
+            }
+            if let Some(userprofile) = original_userprofile {
+                std::env::set_var("USERPROFILE", userprofile);
+            } else {
+                std::env::remove_var("USERPROFILE");
             }
         }
 
@@ -466,8 +496,10 @@ mod tests {
         std::fs::create_dir_all(&temp_dir).expect("创建临时目录失败");
 
         let original_home = std::env::var("HOME").ok();
+        let original_userprofile = std::env::var("USERPROFILE").ok();
         unsafe {
             std::env::set_var("HOME", &temp_dir);
+            std::env::set_var("USERPROFILE", &temp_dir);
         }
 
         let _ = add_custom_model("test-provider".to_string(), "existing-model".to_string());
@@ -479,6 +511,11 @@ mod tests {
                 std::env::set_var("HOME", home);
             } else {
                 std::env::remove_var("HOME");
+            }
+            if let Some(userprofile) = original_userprofile {
+                std::env::set_var("USERPROFILE", userprofile);
+            } else {
+                std::env::remove_var("USERPROFILE");
             }
         }
 

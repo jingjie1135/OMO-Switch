@@ -1,4 +1,5 @@
 use crate::i18n;
+use crate::services::path_service;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -109,9 +110,7 @@ struct ModelsDevPricing {
 /// 获取缓存目录路径（与 oh-my-opencode CLI 保持一致）
 /// 统一使用 ~/.cache/oh-my-opencode/
 fn get_cache_dir() -> Result<PathBuf, String> {
-    std::env::var("HOME")
-        .map(|home| PathBuf::from(home).join(".cache").join("oh-my-opencode"))
-        .map_err(|_| "无法获取 HOME 环境变量".to_string())
+    path_service::omo_cache_dir()
 }
 
 /// 获取可用模型列表，按提供商分组（缓存快照）
@@ -175,8 +174,7 @@ fn get_opencode_models_total_timeout_secs() -> u64 {
 }
 
 fn build_opencode_path_env() -> Option<String> {
-    let home = env::var("HOME").ok()?;
-    let opencode_bin = PathBuf::from(home).join(".opencode").join("bin");
+    let opencode_bin = path_service::user_home_dir().ok()?.join(".opencode").join("bin");
     let opencode_bin_str = opencode_bin.to_string_lossy().to_string();
     let current_path = env::var("PATH").unwrap_or_default();
     if current_path
@@ -208,8 +206,8 @@ fn build_opencode_candidates() -> Vec<String> {
         }
     }
 
-    if let Ok(home) = env::var("HOME") {
-        let home_candidate = PathBuf::from(home)
+    if let Ok(home) = path_service::user_home_dir() {
+        let home_candidate = home
             .join(".opencode")
             .join("bin")
             .join("opencode");
@@ -655,6 +653,48 @@ invalid-line
 
     #[test]
     #[serial]
+    fn test_get_connected_providers_uses_userprofile_when_home_missing() {
+        let temp_dir = std::env::temp_dir().join("omo-model-userprofile-test");
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        std::fs::create_dir_all(&temp_dir).expect("创建临时目录失败");
+
+        let original_home = std::env::var("HOME").ok();
+        let original_userprofile = std::env::var("USERPROFILE").ok();
+        unsafe {
+            std::env::remove_var("HOME");
+            std::env::set_var("USERPROFILE", &temp_dir);
+        }
+
+        let cache_dir = temp_dir.join(".cache").join("oh-my-opencode");
+        std::fs::create_dir_all(&cache_dir).expect("创建缓存目录失败");
+        std::fs::write(
+            cache_dir.join("connected-providers.json"),
+            r#"{"connected":["openai"],"updatedAt":"2026-05-20T00:00:00.000Z"}"#,
+        )
+        .expect("写入 connected-providers.json 失败");
+
+        let providers = get_connected_providers().unwrap();
+
+        assert_eq!(providers, vec!["openai".to_string()]);
+
+        unsafe {
+            if let Some(home) = original_home {
+                std::env::set_var("HOME", home);
+            } else {
+                std::env::remove_var("HOME");
+            }
+            if let Some(userprofile) = original_userprofile {
+                std::env::set_var("USERPROFILE", userprofile);
+            } else {
+                std::env::remove_var("USERPROFILE");
+            }
+        }
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    #[serial]
     fn test_get_connected_providers_merge_auth() {
         // 验证：connected-providers.json 与 auth.json 做并集（兼容 OAuth 授权 provider）
         let temp_dir = std::env::temp_dir().join("omo_test_connected_merge_auth");
@@ -662,9 +702,11 @@ invalid-line
         std::fs::create_dir_all(&temp_dir).expect("创建临时目录失败");
 
         let original_home = std::env::var("HOME").ok();
+        let original_userprofile = std::env::var("USERPROFILE").ok();
         // SAFETY: 测试中修改 HOME 环境变量是安全的
         unsafe {
             std::env::set_var("HOME", &temp_dir);
+            std::env::set_var("USERPROFILE", &temp_dir);
         }
 
         let cache_dir = temp_dir.join(".cache").join("oh-my-opencode");
@@ -694,6 +736,11 @@ invalid-line
                 std::env::set_var("HOME", home);
             } else {
                 std::env::remove_var("HOME");
+            }
+            if let Some(userprofile) = original_userprofile {
+                std::env::set_var("USERPROFILE", userprofile);
+            } else {
+                std::env::remove_var("USERPROFILE");
             }
         }
 
@@ -740,9 +787,11 @@ invalid-line
 
         // 保存原始 HOME
         let original_home = std::env::var("HOME").ok();
+        let original_userprofile = std::env::var("USERPROFILE").ok();
         // SAFETY: 测试中修改 HOME 环境变量是安全的
         unsafe {
             std::env::set_var("HOME", &temp_dir);
+            std::env::set_var("USERPROFILE", &temp_dir);
         }
 
         // 1. 创建缓存文件 provider-models.json（模拟 CLI 缓存）
@@ -794,6 +843,11 @@ invalid-line
                 std::env::set_var("HOME", home);
             } else {
                 std::env::remove_var("HOME");
+            }
+            if let Some(userprofile) = original_userprofile {
+                std::env::set_var("USERPROFILE", userprofile);
+            } else {
+                std::env::remove_var("USERPROFILE");
             }
         }
 

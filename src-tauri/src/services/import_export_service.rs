@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 
 use crate::i18n;
 use crate::services::config_service::{read_omo_config, validate_config, write_omo_config};
+use crate::services::path_service;
 
 const DEFAULT_MAX_BACKUP_RECORDS: usize = 10;
 const MAX_BACKUP_RECORDS_UPPER: usize = 500;
@@ -29,11 +30,12 @@ fn normalize_max_backup_records(value: usize) -> usize {
 }
 
 fn get_settings_path() -> Result<PathBuf, String> {
-    let home = std::env::var("HOME").map_err(|_| i18n::tr_current("home_env_var_error"))?;
-    Ok(PathBuf::from(home)
-        .join(".config")
-        .join("OMO-Switch")
+    Ok(path_service::omo_switch_config_dir()?
         .join("import-export-settings.json"))
+}
+
+fn get_backup_dir() -> Result<PathBuf, String> {
+    path_service::opencode_backups_dir()
 }
 
 fn load_settings() -> ImportExportSettings {
@@ -90,11 +92,7 @@ fn save_settings(settings: &ImportExportSettings) -> Result<(), String> {
 }
 
 fn get_managed_backup_entries_with_ts() -> Result<Vec<(PathBuf, u64)>, String> {
-    let home = std::env::var("HOME").map_err(|_| i18n::tr_current("home_env_var_error"))?;
-    let backup_dir = PathBuf::from(home)
-        .join(".config")
-        .join("opencode")
-        .join("backups");
+    let backup_dir = get_backup_dir()?;
 
     if !backup_dir.exists() {
         return Ok(Vec::new());
@@ -276,12 +274,8 @@ fn backup_current_config_with_prefix(prefix: &str) -> Result<PathBuf, String> {
     let config = read_omo_config()?;
 
     // 获取配置文件所在目录
-    let home = std::env::var("HOME").map_err(|_| i18n::tr_current("home_env_var_error"))?;
-
-    let config_dir = PathBuf::from(home).join(".config").join("opencode");
-
     // 创建备份目录
-    let backup_dir = config_dir.join("backups");
+    let backup_dir = get_backup_dir()?;
     fs::create_dir_all(&backup_dir)
         .map_err(|e| format!("{}: {}", i18n::tr_current("backup_config_failed"), e))?;
 
@@ -309,11 +303,7 @@ fn backup_current_config_with_prefix(prefix: &str) -> Result<PathBuf, String> {
 }
 
 fn ensure_backup_path(path: &str) -> Result<PathBuf, String> {
-    let home = std::env::var("HOME").map_err(|_| i18n::tr_current("home_env_var_error"))?;
-    let backup_dir = PathBuf::from(home)
-        .join(".config")
-        .join("opencode")
-        .join("backups");
+    let backup_dir = get_backup_dir()?;
     let target = PathBuf::from(path);
 
     if !target.exists() {
@@ -380,11 +370,7 @@ pub fn export_backup_entry(path: &str, target_path: &str) -> Result<(), String> 
 
 /// 清空备份历史
 pub fn clear_backup_history() -> Result<usize, String> {
-    let home = std::env::var("HOME").map_err(|_| i18n::tr_current("home_env_var_error"))?;
-    let backup_dir = PathBuf::from(home)
-        .join(".config")
-        .join("opencode")
-        .join("backups");
+    let backup_dir = get_backup_dir()?;
 
     if !backup_dir.exists() {
         return Ok(0);
@@ -414,12 +400,7 @@ pub fn clear_backup_history() -> Result<usize, String> {
 /// - `Ok(Vec<BackupInfo>)`: 历史记录列表
 /// - `Err(String)`: 获取失败，包含错误信息
 pub fn get_backup_history() -> Result<Vec<BackupInfo>, String> {
-    let home = std::env::var("HOME").map_err(|_| i18n::tr_current("home_env_var_error"))?;
-
-    let backup_dir = PathBuf::from(home)
-        .join(".config")
-        .join("opencode")
-        .join("backups");
+    let backup_dir = get_backup_dir()?;
 
     // 如果备份目录不存在，返回空列表
     if !backup_dir.exists() {
@@ -514,11 +495,14 @@ mod tests {
     use std::env;
     use std::time::Duration;
 
-    struct HomeGuard(Option<String>);
+    struct HomeGuard {
+        home: Option<String>,
+        userprofile: Option<String>,
+    }
 
     impl Drop for HomeGuard {
         fn drop(&mut self) {
-            match &self.0 {
+            match &self.home {
                 Some(v) => {
                     // SAFETY: 测试结束时恢复 HOME 环境变量
                     unsafe { env::set_var("HOME", v) };
@@ -528,17 +512,31 @@ mod tests {
                     unsafe { env::remove_var("HOME") };
                 }
             }
+            match &self.userprofile {
+                Some(v) => {
+                    // SAFETY: 测试结束时恢复 USERPROFILE 环境变量
+                    unsafe { env::set_var("USERPROFILE", v) };
+                }
+                None => {
+                    // SAFETY: 测试结束时清理 USERPROFILE 环境变量
+                    unsafe { env::remove_var("USERPROFILE") };
+                }
+            }
         }
     }
 
     fn with_temp_home(name: &str) -> (std::path::PathBuf, HomeGuard) {
         let original_home = env::var("HOME").ok();
+        let original_userprofile = env::var("USERPROFILE").ok();
         let temp_home = env::temp_dir().join(name);
         let _ = fs::remove_dir_all(&temp_home);
         fs::create_dir_all(&temp_home).unwrap();
-        // SAFETY: 测试中将 HOME 指向临时目录，避免污染真实用户数据
-        unsafe { env::set_var("HOME", &temp_home) };
-        (temp_home, HomeGuard(original_home))
+        // SAFETY: 测试中将用户目录指向临时目录，避免污染真实用户数据
+        unsafe {
+            env::set_var("HOME", &temp_home);
+            env::set_var("USERPROFILE", &temp_home);
+        }
+        (temp_home, HomeGuard { home: original_home, userprofile: original_userprofile })
     }
 
     #[test]
@@ -639,6 +637,48 @@ mod tests {
 
         // 清理
         fs::remove_dir_all(&temp_dir).unwrap();
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn test_backup_history_uses_userprofile_when_home_missing() {
+        let temp_dir = std::env::temp_dir().join("omo-import-export-userprofile-test");
+        let _ = fs::remove_dir_all(&temp_dir);
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        let original_home = std::env::var("HOME").ok();
+        let original_userprofile = std::env::var("USERPROFILE").ok();
+        unsafe {
+            std::env::remove_var("HOME");
+            std::env::set_var("USERPROFILE", &temp_dir);
+        }
+
+        let backup_dir = temp_dir.join(".config").join("opencode").join("backups");
+        fs::create_dir_all(&backup_dir).unwrap();
+        fs::write(
+            backup_dir.join("oh-my-openagent_20260520_120000_000.json"),
+            r#"{"agents":{},"categories":{}}"#,
+        )
+        .unwrap();
+
+        let history = get_backup_history().unwrap();
+
+        assert_eq!(history.len(), 1);
+
+        unsafe {
+            if let Some(home) = original_home {
+                std::env::set_var("HOME", home);
+            } else {
+                std::env::remove_var("HOME");
+            }
+            if let Some(userprofile) = original_userprofile {
+                std::env::set_var("USERPROFILE", userprofile);
+            } else {
+                std::env::remove_var("USERPROFILE");
+            }
+        }
+
+        let _ = fs::remove_dir_all(&temp_dir);
     }
 
     #[test]

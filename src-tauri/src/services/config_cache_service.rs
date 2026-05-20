@@ -8,6 +8,8 @@ use serde_json::Value;
 use std::fs;
 use std::path::PathBuf;
 
+use crate::services::path_service;
+
 // ============================================================================
 // 数据结构定义
 // ============================================================================
@@ -43,9 +45,7 @@ pub struct ConfigChange {
 /// 获取缓存目录路径（与 oh-my-opencode CLI 保持一致）
 /// 统一使用 ~/.cache/oh-my-opencode/
 fn get_cache_dir() -> Result<PathBuf, String> {
-    std::env::var("HOME")
-        .map(|home| PathBuf::from(home).join(".cache").join("oh-my-opencode"))
-        .map_err(|_| "无法获取 HOME 环境变量".to_string())
+    path_service::omo_cache_dir()
 }
 
 /// 获取配置快照文件路径
@@ -515,6 +515,45 @@ mod tests {
     }
 
     /// 测试 ConfigSnapshot 序列化和反序列化
+    #[test]
+    #[serial_test::serial]
+    fn test_save_snapshot_uses_userprofile_when_home_missing() {
+        let temp_dir = std::env::temp_dir().join("omo-cache-userprofile-test");
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let original_home = std::env::var("HOME").ok();
+        let original_userprofile = std::env::var("USERPROFILE").ok();
+        unsafe {
+            std::env::remove_var("HOME");
+            std::env::set_var("USERPROFILE", &temp_dir);
+        }
+
+        let config = serde_json::json!({"agents": {}, "categories": {}});
+        save_config_snapshot(&config).unwrap();
+
+        assert!(temp_dir
+            .join(".cache")
+            .join("oh-my-opencode")
+            .join("config-snapshot.json")
+            .exists());
+
+        unsafe {
+            if let Some(home) = original_home {
+                std::env::set_var("HOME", home);
+            } else {
+                std::env::remove_var("HOME");
+            }
+            if let Some(userprofile) = original_userprofile {
+                std::env::set_var("USERPROFILE", userprofile);
+            } else {
+                std::env::remove_var("USERPROFILE");
+            }
+        }
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
     #[test]
     fn test_snapshot_serialization() {
         let snapshot = ConfigSnapshot {

@@ -6,6 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::config_service::{read_omo_config, write_omo_config};
 use crate::i18n;
+use crate::services::path_service;
 
 /// 预设元数据结构体
 /// 用于记录预设的创建时间、更新时间和版本信息
@@ -67,14 +68,7 @@ const META_FIELD: &str = "__meta__";
 /// 获取预设目录路径
 /// 返回 ~/.config/OMO-Switch/presets/ 的完整路径
 pub fn get_presets_dir() -> Result<PathBuf, String> {
-    let home = std::env::var("HOME").map_err(|_| i18n::tr_current("home_env_var_error"))?;
-
-    let presets_dir = PathBuf::from(home)
-        .join(".config")
-        .join("OMO-Switch")
-        .join("presets");
-
-    Ok(presets_dir)
+    path_service::omo_switch_presets_dir()
 }
 
 /// 获取预设文件路径
@@ -519,13 +513,45 @@ mod tests {
     use std::fs;
 
     #[test]
+    #[serial_test::serial]
+    fn test_get_presets_dir_uses_userprofile_when_home_missing() {
+        let temp_dir = std::env::temp_dir().join("omo-preset-userprofile-test");
+        let _ = fs::remove_dir_all(&temp_dir);
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        let original_home = std::env::var("HOME").ok();
+        let original_userprofile = std::env::var("USERPROFILE").ok();
+        unsafe {
+            std::env::remove_var("HOME");
+            std::env::set_var("USERPROFILE", &temp_dir);
+        }
+
+        let path = get_presets_dir().unwrap();
+
+        assert_eq!(path, temp_dir.join(".config").join("OMO-Switch").join("presets"));
+
+        unsafe {
+            if let Some(home) = original_home {
+                std::env::set_var("HOME", home);
+            } else {
+                std::env::remove_var("HOME");
+            }
+            if let Some(userprofile) = original_userprofile {
+                std::env::set_var("USERPROFILE", userprofile);
+            } else {
+                std::env::remove_var("USERPROFILE");
+            }
+        }
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
     fn test_get_presets_dir() {
         let result = get_presets_dir();
         assert!(result.is_ok());
         let path = result.unwrap();
-        assert!(path
-            .to_string_lossy()
-            .contains(".config/OMO-Switch/presets"));
+        assert!(path.ends_with(std::path::PathBuf::from(".config").join("OMO-Switch").join("presets")));
     }
 
     #[test]
@@ -666,11 +692,7 @@ mod tests {
 
 /// 获取当前激活的预设名称
 pub fn get_active_preset() -> Option<String> {
-    let home = std::env::var("HOME").ok()?;
-    let path = std::path::PathBuf::from(home)
-        .join(".config")
-        .join("OMO-Switch")
-        .join("active_preset");
+    let path = path_service::omo_switch_config_dir().ok()?.join("active_preset");
     std::fs::read_to_string(path)
         .ok()
         .map(|s| s.trim().to_string())
@@ -679,10 +701,7 @@ pub fn get_active_preset() -> Option<String> {
 
 /// 设置当前激活的预设名称
 pub fn set_active_preset(name: &str) -> Result<(), String> {
-    let home = std::env::var("HOME").map_err(|_| "无法获取 HOME 环境变量")?;
-    let dir = std::path::PathBuf::from(home)
-        .join(".config")
-        .join("OMO-Switch");
+    let dir = path_service::omo_switch_config_dir()?;
     std::fs::create_dir_all(&dir).map_err(|e| format!("创建目录失败: {}", e))?;
     let path = dir.join("active_preset");
     std::fs::write(&path, name).map_err(|e| format!("写入文件失败: {}", e))
