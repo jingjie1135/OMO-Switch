@@ -17,6 +17,9 @@ src-tauri/target
 # Sisyphus
 .sisyphus/
 
+# OpenCode / OMO runtime continuation files
+.omo/run-continuation/*.json
+
 # Tauri generated
 src-tauri/gen
 
