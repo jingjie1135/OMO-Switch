@@ -1,4 +1,5 @@
 use crate::i18n;
+use crate::services::path_service;
 use serde_json::Value;
 use std::fs;
 use std::io::Write;
@@ -10,18 +11,29 @@ const LEGACY_CONFIG_BASENAME: &str = "oh-my-opencode.json";
 const LEGACY_CONFIG_BASENAME_JSONC: &str = "oh-my-opencode.jsonc";
 
 fn get_config_dir() -> Result<PathBuf, String> {
-    let home = std::env::var("HOME").map_err(|_| i18n::tr_current("home_env_var_error"))?;
-    Ok(PathBuf::from(home).join(".config").join("opencode"))
+    path_service::opencode_config_dir()
 }
 
 fn get_config_candidates() -> Result<Vec<PathBuf>, String> {
-    let dir = get_config_dir()?;
-    Ok(vec![
-        dir.join(PRIMARY_CONFIG_BASENAME),
-        dir.join(PRIMARY_CONFIG_BASENAME_JSONC),
-        dir.join(LEGACY_CONFIG_BASENAME),
-        dir.join(LEGACY_CONFIG_BASENAME_JSONC),
-    ])
+    let mut candidates = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+
+    for dir in path_service::opencode_config_dirs()? {
+        for filename in [
+            PRIMARY_CONFIG_BASENAME,
+            PRIMARY_CONFIG_BASENAME_JSONC,
+            LEGACY_CONFIG_BASENAME,
+            LEGACY_CONFIG_BASENAME_JSONC,
+        ] {
+            let path = dir.join(filename);
+            let key = path.to_string_lossy().to_string();
+            if seen.insert(key) {
+                candidates.push(path);
+            }
+        }
+    }
+
+    Ok(candidates)
 }
 
 fn resolve_existing_config_path() -> Result<Option<PathBuf>, String> {
@@ -185,9 +197,15 @@ mod tests {
     #[test]
     fn test_get_config_path() {
         let path = get_config_path().unwrap();
-        assert!(path
-            .to_string_lossy()
-            .contains(".config/opencode/oh-my-openagent.json"));
+        assert_eq!(
+            path.parent().and_then(|p| p.file_name()).and_then(|p| p.to_str()),
+            Some("opencode")
+        );
+        assert!(matches!(
+            path.file_name().and_then(|name| name.to_str()),
+            Some("oh-my-openagent.json") | Some("oh-my-openagent.jsonc")
+                | Some("oh-my-opencode.json") | Some("oh-my-opencode.jsonc")
+        ));
     }
 
     /// 测试配置验证 - 有效配置
@@ -347,14 +365,111 @@ mod tests {
 
     #[test]
     #[serial]
+    fn test_read_omo_config_uses_userprofile_when_home_missing() {
+        let temp_dir = std::env::temp_dir().join("omo-config-userprofile-test");
+        let _ = fs::remove_dir_all(&temp_dir);
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        let original_home = std::env::var("HOME").ok();
+        let original_userprofile = std::env::var("USERPROFILE").ok();
+        unsafe {
+            std::env::remove_var("HOME");
+            std::env::set_var("USERPROFILE", &temp_dir);
+        }
+
+        let config_dir = temp_dir.join(".config").join("opencode");
+        fs::create_dir_all(&config_dir).unwrap();
+        fs::write(
+            config_dir.join("oh-my-openagent.jsonc"),
+            r#"{
+              // JSONC should be accepted
+              "agents": {"sisyphus": {"model": "gpt-5"}},
+              "categories": {}
+            }"#,
+        )
+        .unwrap();
+
+        let config = read_omo_config().unwrap();
+
+        assert_eq!(config["agents"]["sisyphus"]["model"], "gpt-5");
+
+        unsafe {
+            if let Some(home) = original_home {
+                std::env::set_var("HOME", home);
+            } else {
+                std::env::remove_var("HOME");
+            }
+            if let Some(userprofile) = original_userprofile {
+                std::env::set_var("USERPROFILE", userprofile);
+            } else {
+                std::env::remove_var("USERPROFILE");
+            }
+        }
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    #[serial]
+    fn test_read_omo_config_uses_opencode_config_dir_without_hiding_default() {
+        let temp_dir = std::env::temp_dir().join("omo-config-dir-override-test");
+        let _ = fs::remove_dir_all(&temp_dir);
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        let original_home = std::env::var("HOME").ok();
+        let original_userprofile = std::env::var("USERPROFILE").ok();
+        let original_config_dir = std::env::var("OPENCODE_CONFIG_DIR").ok();
+        unsafe {
+            std::env::set_var("HOME", &temp_dir);
+            std::env::set_var("USERPROFILE", &temp_dir);
+            std::env::set_var("OPENCODE_CONFIG_DIR", temp_dir.join("custom-opencode"));
+        }
+
+        let default_dir = temp_dir.join(".config").join("opencode");
+        fs::create_dir_all(&default_dir).unwrap();
+        fs::write(
+            default_dir.join("oh-my-openagent.json"),
+            r#"{"agents":{"default":{"model":"default-model"}},"categories":{}}"#,
+        )
+        .unwrap();
+
+        let config = read_omo_config().unwrap();
+
+        assert_eq!(config["agents"]["default"]["model"], "default-model");
+
+        unsafe {
+            if let Some(home) = original_home {
+                std::env::set_var("HOME", home);
+            } else {
+                std::env::remove_var("HOME");
+            }
+            if let Some(userprofile) = original_userprofile {
+                std::env::set_var("USERPROFILE", userprofile);
+            } else {
+                std::env::remove_var("USERPROFILE");
+            }
+            if let Some(config_dir) = original_config_dir {
+                std::env::set_var("OPENCODE_CONFIG_DIR", config_dir);
+            } else {
+                std::env::remove_var("OPENCODE_CONFIG_DIR");
+            }
+        }
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    #[serial]
     fn test_write_omo_config_is_atomic_and_creates_backup() {
         let temp_dir = std::env::temp_dir().join("omo-write-config-atomic-test");
         let _ = fs::remove_dir_all(&temp_dir);
         fs::create_dir_all(&temp_dir).unwrap();
 
         let original_home = std::env::var("HOME").ok();
+        let original_userprofile = std::env::var("USERPROFILE").ok();
         unsafe {
             std::env::set_var("HOME", &temp_dir);
+            std::env::set_var("USERPROFILE", &temp_dir);
         }
 
         let config_dir = temp_dir.join(".config").join("opencode");
@@ -398,6 +513,11 @@ mod tests {
                 std::env::set_var("HOME", home);
             } else {
                 std::env::remove_var("HOME");
+            }
+            if let Some(userprofile) = original_userprofile {
+                std::env::set_var("USERPROFILE", userprofile);
+            } else {
+                std::env::remove_var("USERPROFILE");
             }
         }
 
