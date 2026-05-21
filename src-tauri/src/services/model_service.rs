@@ -1,5 +1,5 @@
 use crate::i18n;
-use crate::services::path_service;
+use crate::services::{path_service, process_service};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -174,7 +174,10 @@ fn get_opencode_models_total_timeout_secs() -> u64 {
 }
 
 fn build_opencode_path_env() -> Option<String> {
-    let opencode_bin = path_service::user_home_dir().ok()?.join(".opencode").join("bin");
+    let opencode_bin = path_service::user_home_dir()
+        .ok()?
+        .join(".opencode")
+        .join("bin");
     let opencode_bin_str = opencode_bin.to_string_lossy().to_string();
     let current_path = env::var("PATH").unwrap_or_default();
     if current_path
@@ -207,10 +210,7 @@ fn build_opencode_candidates() -> Vec<String> {
     }
 
     if let Ok(home) = path_service::user_home_dir() {
-        let home_candidate = home
-            .join(".opencode")
-            .join("bin")
-            .join("opencode");
+        let home_candidate = home.join(".opencode").join("bin").join("opencode");
         if home_candidate.exists() {
             push_unique(home_candidate.to_string_lossy().to_string());
         }
@@ -239,6 +239,7 @@ fn run_opencode_models_with_command(
     cmd.args(["models"])
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
+    process_service::hide_child_window(&mut cmd);
 
     if let Some(path_env) = build_opencode_path_env() {
         cmd.env("PATH", path_env);

@@ -1,3 +1,4 @@
+use crate::services::process_service;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashSet;
@@ -328,12 +329,12 @@ fn extend_opencode_binary_candidates(
 }
 
 fn run_version_command(command: &str) -> Option<String> {
-    let mut child = Command::new(command)
-        .arg("--version")
+    let mut cmd = Command::new(command);
+    cmd.arg("--version")
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .ok()?;
+        .stderr(Stdio::null());
+    process_service::hide_child_window(&mut cmd);
+    let mut child = cmd.spawn().ok()?;
 
     let timeout = Duration::from_secs(3);
     let start = Instant::now();
@@ -665,12 +666,12 @@ fn read_declared_plugin(path: &str, plugin_names: &[&str]) -> Option<DeclaredPlu
 }
 
 fn get_npm_global_root() -> Option<String> {
-    let output = Command::new("npm")
-        .args(["root", "-g"])
+    let mut cmd = Command::new("npm");
+    cmd.args(["root", "-g"])
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .output()
-        .ok()?;
+        .stderr(Stdio::null());
+    process_service::hide_child_window(&mut cmd);
+    let output = cmd.output().ok()?;
 
     if !output.status.success() {
         return None;
