@@ -57,6 +57,7 @@ export function SettingsPage() {
   const openUpdater = useUpdaterStore((s) => s.open);
   const versionsData = usePreloadStore((s) => s.versions);
   const refreshVersions = usePreloadStore((s) => s.refreshVersions);
+  const ensureVersionsFresh = usePreloadStore((s) => s.ensureVersionsFresh);
   const [isChecking, setIsChecking] = useState(false);
   const [updateHint, setUpdateHint] = useState<{ type: 'checking' | 'latest' | 'available' | 'error'; message: string } | null>(null);
   const isLoadingVersions = versionsData.loading;
@@ -79,12 +80,9 @@ export function SettingsPage() {
       });
   }, []);
 
-  // 页面进入时刷新版本信息（仅在数据为空时刷新）
+  // 页面进入仅补齐本会话尚未刷新过的版本信息，避免反复切页触发外部命令
   useEffect(() => {
-    const { versions } = usePreloadStore.getState();
-    if (!versions.data) {
-      refreshVersions();
-    }
+    ensureVersionsFresh();
   }, []);
 
   useEffect(() => {

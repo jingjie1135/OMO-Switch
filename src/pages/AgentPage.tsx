@@ -33,7 +33,7 @@ export function AgentPage() {
   const { t } = useTranslation();
   
   // 精确订阅状态，避免不必要的重渲染
-  const { loadOmoConfig, refreshModels } = usePreloadStore();
+  const { loadOmoConfig, refreshModels, ensureModelsFresh } = usePreloadStore();
   const omoConfig = usePreloadStore(useShallow(state => state.omoConfig));
   const modelsGrouped = usePreloadStore(state => state.models.grouped);
   const modelsProviders = usePreloadStore(state => state.models.providers);
@@ -65,12 +65,11 @@ export function AgentPage() {
     if (!omoConfig.data) {
       void loadOmoConfig();
     }
-    if (!models.grouped) {
-      // 首屏先出配置，模型列表延后后台刷新，避免启动瞬间堆积任务
-      setTimeout(() => {
-        void refreshModels();
-      }, 1200);
-    }
+    // 首屏先出配置，模型列表延后后台刷新，避免启动瞬间堆积任务；
+    // 本会话已刷新且未失效时 ensure 会直接跳过。
+    setTimeout(() => {
+      void ensureModelsFresh();
+    }, models.grouped ? 0 : 1200);
     void checkChanges();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

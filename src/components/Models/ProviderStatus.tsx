@@ -481,6 +481,7 @@ export function ProviderStatus() {
   const source = usePreloadStore((s) => s.models.source);
   const fallbackReason = usePreloadStore((s) => s.models.fallbackReason);
   const refreshModels = usePreloadStore((s) => s.refreshModels);
+  const ensureModelsFresh = usePreloadStore((s) => s.ensureModelsFresh);
 
   const [customModelsData, setCustomModelsData] = useState<Record<string, string[]>>(
     {}
@@ -493,10 +494,10 @@ export function ProviderStatus() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    refreshModels().catch(() => {
+    ensureModelsFresh().catch(() => {
       // 校验失败由后续加载逻辑兜底
     });
-  }, [refreshModels]);
+  }, [ensureModelsFresh]);
 
   useEffect(() => {
     let hasLocalCache = false;
