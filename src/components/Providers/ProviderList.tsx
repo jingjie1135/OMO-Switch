@@ -480,14 +480,14 @@ export function ProviderList({
         )}
       </CollapsibleSection>
 
-      <CollapsibleSection
-        title={t('provider.customTag')}
-        icon={Plus}
-        iconColor="bg-purple-500"
-        count={unconfiguredCustomProviders.length}
-        defaultExpanded={unconfiguredCustomProviders.length > 0}
-      >
-        {unconfiguredCustomProviders.length > 0 ? (
+      {unconfiguredCustomProviders.length > 0 && (
+        <CollapsibleSection
+          title={t('provider.customTag')}
+          icon={Plus}
+          iconColor="bg-purple-500"
+          count={unconfiguredCustomProviders.length}
+          defaultExpanded
+        >
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {unconfiguredCustomProviders.map((provider) => (
               <ProviderCard
@@ -497,12 +497,8 @@ export function ProviderList({
               />
             ))}
           </div>
-        ) : (
-          <div className="text-center py-8 text-slate-500">
-            {t('provider.noCustom')}
-          </div>
-        )}
-      </CollapsibleSection>
+        </CollapsibleSection>
+      )}
 
       <button
         onClick={onAddCustom}
