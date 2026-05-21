@@ -40,9 +40,69 @@ enum ProviderModelEntry {
         #[allow(dead_code)]
         #[serde(rename = "providerID")]
         provider_id: Option<String>,
+        api: Option<ProviderModelApi>,
         #[allow(dead_code)]
         name: Option<String>,
+        family: Option<String>,
+        #[serde(rename = "release_date")]
+        release_date: Option<String>,
     },
+}
+
+#[derive(Debug, Deserialize)]
+struct ProviderModelApi {
+    url: Option<String>,
+    npm: Option<String>,
+}
+
+impl ProviderModelEntry {
+    fn catalog_metadata_present(&self) -> bool {
+        let ProviderModelEntry::Object {
+            id,
+            api,
+            name,
+            family,
+            release_date,
+            ..
+        } = self
+        else {
+            return false;
+        };
+
+        let has_catalog_api = api.as_ref().is_some_and(|api| {
+            let has_base_url = api
+                .url
+                .as_deref()
+                .map(str::trim)
+                .is_some_and(|url| !url.is_empty());
+            let has_specific_npm = api
+                .npm
+                .as_deref()
+                .map(str::trim)
+                .is_some_and(|npm| !npm.is_empty() && npm != "@ai-sdk/openai-compatible");
+
+            has_base_url || has_specific_npm
+        });
+        let api_is_openai_compatible = api
+            .as_ref()
+            .and_then(|api| api.npm.as_deref())
+            .map(str::trim)
+            .is_some_and(|npm| npm == "@ai-sdk/openai-compatible");
+        let has_name = name
+            .as_deref()
+            .map(str::trim)
+            .is_some_and(|name| !name.is_empty() && name != id && !api_is_openai_compatible);
+        let has_family = family
+            .as_deref()
+            .map(str::trim)
+            .is_some_and(|family| !family.is_empty());
+        let has_release_date = release_date
+            .as_deref()
+            .map(str::trim)
+            .is_some_and(|release_date| !release_date.is_empty());
+
+        has_catalog_api || has_name || has_family || has_release_date
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -195,17 +255,6 @@ pub fn load_builtin_provider_presets() -> HashMap<String, ProviderPresetEntry> {
         .collect()
 }
 
-pub fn read_config_provider_ids() -> Result<HashSet<String>, String> {
-    let config = read_opencode_config()?;
-    let mut result = HashSet::new();
-    if let Some(provider_obj) = config.get("provider").and_then(|value| value.as_object()) {
-        for provider_id in provider_obj.keys() {
-            result.insert(provider_id.clone());
-        }
-    }
-    Ok(result)
-}
-
 pub fn read_connected_providers() -> Result<HashSet<String>, String> {
     let path = get_connected_providers_path()?;
     if !path.exists() {
@@ -245,6 +294,28 @@ pub fn read_provider_models() -> Result<HashMap<String, Vec<String>>, String> {
                 })
                 .collect::<Vec<_>>();
             (provider_id, models)
+        })
+        .collect())
+}
+
+pub fn read_provider_model_catalog_ids() -> Result<HashSet<String>, String> {
+    let path = get_provider_models_path()?;
+    if !path.exists() {
+        return Ok(HashSet::new());
+    }
+    let content =
+        fs::read_to_string(&path).map_err(|e| format!("读取 provider-models.json 失败: {}", e))?;
+    let cache: ProviderModelsCache = serde_json::from_str(&content)
+        .map_err(|e| format!("解析 provider-models.json 失败: {}", e))?;
+
+    Ok(cache
+        .models
+        .into_iter()
+        .filter_map(|(provider_id, entries)| {
+            entries
+                .iter()
+                .any(ProviderModelEntry::catalog_metadata_present)
+                .then_some(provider_id)
         })
         .collect())
 }
@@ -334,7 +405,10 @@ mod tests {
         let auth = read_auth_file().unwrap();
         let config = read_opencode_config().unwrap();
 
-        assert_eq!(auth.get("openai").and_then(|entry| entry.key.as_deref()), Some("sk-test"));
+        assert_eq!(
+            auth.get("openai").and_then(|entry| entry.key.as_deref()),
+            Some("sk-test")
+        );
         assert!(config["provider"]["openai"]["models"]["gpt-5"].is_object());
 
         unsafe {
