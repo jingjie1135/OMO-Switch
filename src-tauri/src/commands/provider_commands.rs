@@ -1,4 +1,5 @@
-use serde_json::json;
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 use std::collections::HashMap;
 
 use crate::services::{provider_service, provider_store};
@@ -37,8 +38,88 @@ pub type ConnectionTestResult = provider_service::ConnectionTestResult;
 #[cfg(test)]
 pub(crate) type AuthEntry = provider_store::AuthEntry;
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ModelLimit {
+    pub context: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input: Option<u64>,
+    pub output: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CustomModelMetadata {
+    pub limit: Option<ModelLimit>,
+}
+
 fn get_provider_icon_cache_path(provider_id: &str) -> Result<std::path::PathBuf, String> {
     provider_store::get_provider_icon_cache_path(provider_id)
+}
+
+fn validate_model_limit(limit: &ModelLimit) -> Result<(), String> {
+    if limit.context == 0 {
+        return Err("context 必须是大于 0 的整数".to_string());
+    }
+    if matches!(limit.input, Some(0)) {
+        return Err("input 必须是大于 0 的整数".to_string());
+    }
+    if limit.output == 0 {
+        return Err("output 必须是大于 0 的整数".to_string());
+    }
+    Ok(())
+}
+
+fn custom_model_config<'a>(
+    config: &'a Value,
+    provider_id: &str,
+    model_id: &str,
+) -> Result<&'a serde_json::Map<String, Value>, String> {
+    let providers = config
+        .get("provider")
+        .and_then(|value| value.as_object())
+        .ok_or("配置文件中不存在 provider 字段")?;
+    let provider = providers
+        .get(provider_id)
+        .ok_or(format!("供应商 {} 不存在", provider_id))?;
+    let models = provider
+        .get("models")
+        .and_then(|value| value.as_object())
+        .ok_or(format!("供应商 {} 没有配置任何模型", provider_id))?;
+    let model = models.get(model_id).ok_or(format!(
+        "模型 {} 在供应商 {} 中不存在",
+        model_id, provider_id
+    ))?;
+
+    model.as_object().ok_or(format!(
+        "模型 {} 在供应商 {} 中的配置格式错误",
+        model_id, provider_id
+    ))
+}
+
+fn custom_model_config_mut<'a>(
+    config: &'a mut Value,
+    provider_id: &str,
+    model_id: &str,
+) -> Result<&'a mut serde_json::Map<String, Value>, String> {
+    let providers = config
+        .get_mut("provider")
+        .and_then(|value| value.as_object_mut())
+        .ok_or("配置文件中不存在 provider 字段")?;
+    let provider = providers
+        .get_mut(provider_id)
+        .ok_or(format!("供应商 {} 不存在", provider_id))?;
+    let models = provider
+        .get_mut("models")
+        .and_then(|value| value.as_object_mut())
+        .ok_or(format!("供应商 {} 没有配置任何模型", provider_id))?;
+    let model = models.get_mut(model_id).ok_or(format!(
+        "模型 {} 在供应商 {} 中不存在",
+        model_id, provider_id
+    ))?;
+
+    model.as_object_mut().ok_or(format!(
+        "模型 {} 在供应商 {} 中的配置格式错误",
+        model_id, provider_id
+    ))
 }
 
 #[tauri::command]
@@ -147,6 +228,42 @@ pub fn get_custom_models() -> Result<HashMap<String, Vec<String>>, String> {
 }
 
 #[tauri::command]
+pub fn get_custom_model_metadata(
+    provider_id: String,
+    model_id: String,
+) -> Result<CustomModelMetadata, String> {
+    let config = provider_store::read_opencode_config()?;
+    let model = custom_model_config(&config, &provider_id, &model_id)?;
+
+    let limit = match model.get("limit") {
+        Some(value) => Some(
+            serde_json::from_value::<ModelLimit>(value.clone())
+                .map_err(|e| format!("解析模型 limit 失败: {}", e))?,
+        ),
+        None => None,
+    };
+
+    Ok(CustomModelMetadata { limit })
+}
+
+#[tauri::command]
+pub fn update_custom_model_limit(
+    provider_id: String,
+    model_id: String,
+    limit: ModelLimit,
+) -> Result<(), String> {
+    validate_model_limit(&limit)?;
+
+    let mut config = provider_store::read_opencode_config()?;
+    let model = custom_model_config_mut(&mut config, &provider_id, &model_id)?;
+    let limit_value =
+        serde_json::to_value(limit).map_err(|e| format!("序列化模型 limit 失败: {}", e))?;
+    model.insert("limit".to_string(), limit_value);
+
+    provider_store::write_opencode_config(&config)
+}
+
+#[tauri::command]
 pub fn get_provider_icon(provider_id: String) -> Result<Option<String>, String> {
     let cache_path = get_provider_icon_cache_path(&provider_id)?;
     if cache_path.exists() {
@@ -191,6 +308,52 @@ mod tests {
     use super::*;
     use serde_json::Value;
     use serial_test::serial;
+
+    fn with_temp_home<T>(name: &str, test: impl FnOnce(&std::path::Path) -> T) -> T {
+        let temp_dir = std::env::temp_dir().join(name);
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        std::fs::create_dir_all(&temp_dir).expect("创建临时目录失败");
+
+        let original_home = std::env::var("HOME").ok();
+        let original_userprofile = std::env::var("USERPROFILE").ok();
+        unsafe {
+            std::env::set_var("HOME", &temp_dir);
+            std::env::set_var("USERPROFILE", &temp_dir);
+        }
+
+        let result = test(&temp_dir);
+
+        unsafe {
+            if let Some(home) = original_home {
+                std::env::set_var("HOME", home);
+            } else {
+                std::env::remove_var("HOME");
+            }
+            if let Some(userprofile) = original_userprofile {
+                std::env::set_var("USERPROFILE", userprofile);
+            } else {
+                std::env::remove_var("USERPROFILE");
+            }
+        }
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        result
+    }
+
+    fn write_opencode_fixture(temp_dir: &std::path::Path, content: &str) {
+        let config_dir = temp_dir.join(".config").join("opencode");
+        std::fs::create_dir_all(&config_dir).expect("创建配置目录失败");
+        std::fs::write(config_dir.join("opencode.json"), content).expect("写入配置文件失败");
+    }
+
+    fn read_opencode_fixture(temp_dir: &std::path::Path) -> Value {
+        let config_path = temp_dir
+            .join(".config")
+            .join("opencode")
+            .join("opencode.json");
+        let content = std::fs::read_to_string(config_path).expect("读取配置文件失败");
+        serde_json::from_str(&content).expect("解析配置文件失败")
+    }
 
     #[test]
     fn test_provider_info_serialization() {
@@ -257,6 +420,176 @@ mod tests {
         assert_eq!(openai.key, None);
         assert!(openai.extra.contains_key("refresh"));
         assert!(openai.extra.contains_key("access"));
+    }
+
+    #[test]
+    #[serial]
+    fn test_get_custom_model_metadata_returns_existing_limit() {
+        with_temp_home("omo_test_get_custom_model_metadata_limit", |temp_dir| {
+            write_opencode_fixture(
+                temp_dir,
+                r#"{
+                  "provider": {
+                    "test-provider": {
+                      "models": {
+                        "test-model": {
+                          "limit": {
+                            "context": 128000,
+                            "input": 120000,
+                            "output": 8192
+                          }
+                        }
+                      }
+                    }
+                  }
+                }"#,
+            );
+
+            let metadata =
+                get_custom_model_metadata("test-provider".to_string(), "test-model".to_string())
+                    .expect("读取模型 metadata 应该成功");
+
+            let limit = metadata.limit.expect("应该返回已有 limit");
+            assert_eq!(limit.context, 128000);
+            assert_eq!(limit.input, Some(120000));
+            assert_eq!(limit.output, 8192);
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn test_get_custom_model_metadata_returns_no_limit_for_empty_model() {
+        with_temp_home("omo_test_get_custom_model_metadata_empty", |temp_dir| {
+            write_opencode_fixture(
+                temp_dir,
+                r#"{
+                  "provider": {
+                    "test-provider": {
+                      "models": {
+                        "test-model": {}
+                      }
+                    }
+                  }
+                }"#,
+            );
+
+            let metadata =
+                get_custom_model_metadata("test-provider".to_string(), "test-model".to_string())
+                    .expect("读取空模型 metadata 应该成功");
+
+            assert!(metadata.limit.is_none());
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn test_update_custom_model_limit_writes_limit_and_preserves_model_fields() {
+        with_temp_home("omo_test_update_custom_model_limit_preserve", |temp_dir| {
+            write_opencode_fixture(
+                temp_dir,
+                r#"{
+                  "provider": {
+                    "test-provider": {
+                      "npm": "@ai-sdk/openai-compatible",
+                      "models": {
+                        "test-model": {
+                          "name": "Preserved Name",
+                          "capabilities": { "tools": true }
+                        }
+                      }
+                    }
+                  }
+                }"#,
+            );
+
+            update_custom_model_limit(
+                "test-provider".to_string(),
+                "test-model".to_string(),
+                ModelLimit {
+                    context: 200000,
+                    input: Some(180000),
+                    output: 16000,
+                },
+            )
+            .expect("更新模型 limit 应该成功");
+
+            let config = read_opencode_fixture(temp_dir);
+            let model = &config["provider"]["test-provider"]["models"]["test-model"];
+            assert_eq!(model["limit"]["context"], 200000);
+            assert_eq!(model["limit"]["input"], 180000);
+            assert_eq!(model["limit"]["output"], 16000);
+            assert_eq!(model["name"], "Preserved Name");
+            assert_eq!(model["capabilities"]["tools"], true);
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn test_update_custom_model_limit_omits_empty_input() {
+        with_temp_home("omo_test_update_custom_model_limit_no_input", |temp_dir| {
+            write_opencode_fixture(
+                temp_dir,
+                r#"{
+                  "provider": {
+                    "test-provider": {
+                      "models": {
+                        "test-model": {}
+                      }
+                    }
+                  }
+                }"#,
+            );
+
+            update_custom_model_limit(
+                "test-provider".to_string(),
+                "test-model".to_string(),
+                ModelLimit {
+                    context: 128000,
+                    input: None,
+                    output: 8192,
+                },
+            )
+            .expect("更新无 input 的模型 limit 应该成功");
+
+            let config = read_opencode_fixture(temp_dir);
+            let limit = &config["provider"]["test-provider"]["models"]["test-model"]["limit"];
+            assert_eq!(limit["context"], 128000);
+            assert!(limit.get("input").is_none());
+            assert_eq!(limit["output"], 8192);
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn test_update_custom_model_limit_missing_model_returns_error() {
+        with_temp_home("omo_test_update_custom_model_limit_missing", |temp_dir| {
+            write_opencode_fixture(
+                temp_dir,
+                r#"{
+                  "provider": {
+                    "test-provider": {
+                      "models": {
+                        "existing-model": {}
+                      }
+                    }
+                  }
+                }"#,
+            );
+
+            let error = update_custom_model_limit(
+                "test-provider".to_string(),
+                "missing-model".to_string(),
+                ModelLimit {
+                    context: 128000,
+                    input: Some(120000),
+                    output: 8192,
+                },
+            )
+            .expect_err("缺失模型应该返回错误");
+
+            assert!(error.contains("missing-model"));
+            assert!(error.contains("不存在"));
+        });
     }
 
     #[test]

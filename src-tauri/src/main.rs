@@ -62,6 +62,8 @@ fn main() {
             commands::provider_commands::add_custom_model,
             commands::provider_commands::remove_custom_model,
             commands::provider_commands::get_custom_models,
+            commands::provider_commands::get_custom_model_metadata,
+            commands::provider_commands::update_custom_model_limit,
             commands::provider_commands::get_provider_icon,
             commands::import_export_commands::export_omo_config,
             commands::import_export_commands::import_omo_config,
