@@ -164,6 +164,31 @@ export async function getCustomModels(): Promise<Record<string, string[]>> {
   return invoke<Record<string, string[]>>('get_custom_models');
 }
 
+export interface ModelLimit {
+  context: number;
+  input?: number | null;
+  output: number;
+}
+
+export interface CustomModelMetadata {
+  limit?: ModelLimit | null;
+}
+
+export async function getCustomModelMetadata(
+  providerId: string,
+  modelId: string
+): Promise<CustomModelMetadata> {
+  return invoke<CustomModelMetadata>('get_custom_model_metadata', { providerId, modelId });
+}
+
+export async function updateCustomModelLimit(
+  providerId: string,
+  modelId: string,
+  limit: ModelLimit
+): Promise<void> {
+  return invoke<void>('update_custom_model_limit', { providerId, modelId, limit });
+}
+
 export async function fetchModelsDev(): Promise<ModelInfo[]> {
   return invoke<ModelInfo[]>('fetch_models_dev');
 }
@@ -525,6 +550,8 @@ const tauriService = {
   addCustomModel,
   removeCustomModel,
   getCustomModels,
+  getCustomModelMetadata,
+  updateCustomModelLimit,
 };
 
 export default tauriService;
