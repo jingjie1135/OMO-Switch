@@ -656,19 +656,37 @@
       "runInTerminal": "在终端运行:",
        "copied": "已复制"
      },
-       "customModel": {
-         "addModel": "添加模型",
-         "selectModelToAdd": "选择要添加的模型",
-         "noModelsAvailable": "模型列表为空",
+        "customModel": {
+          "addModel": "添加模型",
+          "selectModelToAdd": "选择要添加的模型",
+          "noModelsAvailable": "模型列表为空",
          "modelAdded": "模型添加成功",
          "addModelError": "添加模型失败",
          "searchPlaceholder": "搜索模型或供应商...",
          "confirmDelete": "确定删除？",
          "modelRemoved": "模型删除成功",
-         "cancel": "取消",
-         "confirm": "确定"
-       },
-       "applyModel": {
+          "cancel": "取消",
+          "confirm": "确定"
+        },
+        "modelLimit": {
+          "title": "编辑模型 Limit",
+          "description": "配置 OpenCode 上下文压缩使用的模型限制",
+          "editAction": "编辑模型 Limit",
+          "loading": "正在读取模型 Limit...",
+          "contextLabel": "Context 窗口（必填）",
+          "inputLabel": "Input 限制（可选）",
+          "inputHint": "留空则不写入 input 字段。",
+          "outputLabel": "Output 限制（必填）",
+          "contextRequired": "请填写 context。",
+          "contextInvalid": "context 必须是大于 0 的整数。",
+          "inputInvalid": "input 必须是大于 0 的整数，或留空。",
+          "outputRequired": "请填写 output。",
+          "outputInvalid": "output 必须是大于 0 的整数。",
+          "invalidForm": "请检查模型限制数值。",
+          "loadError": "读取模型 Limit 失败",
+          "saveError": "保存模型 Limit 失败"
+        },
+        "applyModel": {
          "title": "将 {{model}} 应用到",
          "intensityLevel": "强度等级",
          "agents": "Agents",

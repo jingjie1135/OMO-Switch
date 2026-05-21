@@ -564,16 +564,34 @@
       "runInTerminal": "在終端運行:",
        "copied": "已複製"
      },
-      "customModel": {
-        "addModel": "新增模型",
-        "selectModelToAdd": "選擇要新增的模型",
-        "noModelsAvailable": "模型列表為空",
+       "customModel": {
+         "addModel": "新增模型",
+         "selectModelToAdd": "選擇要新增的模型",
+         "noModelsAvailable": "模型列表為空",
         "modelAdded": "模型新增成功",
         "addModelError": "新增模型失敗",
         "searchPlaceholder": "搜尋模型或供應商...",
         "confirmDelete": "確定刪除？",
         "modelRemoved": "模型刪除成功",
-        "cancel": "取消",
-        "confirm": "確定"
-      }
-    }
+         "cancel": "取消",
+         "confirm": "確定"
+       },
+       "modelLimit": {
+         "title": "編輯模型 Limit",
+         "description": "設定 OpenCode 上下文壓縮使用的模型限制",
+         "editAction": "編輯模型 Limit",
+         "loading": "正在讀取模型 Limit...",
+         "contextLabel": "Context 視窗（必填）",
+         "inputLabel": "Input 限制（可選）",
+         "inputHint": "留空則不寫入 input 欄位。",
+         "outputLabel": "Output 限制（必填）",
+         "contextRequired": "請填寫 context。",
+         "contextInvalid": "context 必須是大於 0 的整數。",
+         "inputInvalid": "input 必須是大於 0 的整數，或留空。",
+         "outputRequired": "請填寫 output。",
+         "outputInvalid": "output 必須是大於 0 的整數。",
+         "invalidForm": "請檢查模型限制數值。",
+         "loadError": "讀取模型 Limit 失敗",
+         "saveError": "儲存模型 Limit 失敗"
+       }
+     }

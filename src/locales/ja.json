@@ -541,16 +541,34 @@
       "runInTerminal": "ターミナルで実行:",
        "copied": "コピーしました"
      },
-      "customModel": {
-        "addModel": "モデルを追加",
-        "selectModelToAdd": "追加するモデルを選択",
-        "noModelsAvailable": "モデルリストが空です",
+       "customModel": {
+         "addModel": "モデルを追加",
+         "selectModelToAdd": "追加するモデルを選択",
+         "noModelsAvailable": "モデルリストが空です",
         "modelAdded": "モデルを追加しました",
         "addModelError": "モデルの追加に失敗しました",
         "searchPlaceholder": "モデルまたはプロバイダーを検索...",
         "confirmDelete": "削除しますか？",
         "modelRemoved": "モデルを削除しました",
-        "cancel": "キャンセル",
-        "confirm": "確認"
-      }
-    }
+         "cancel": "キャンセル",
+         "confirm": "確認"
+       },
+       "modelLimit": {
+         "title": "モデル Limit を編集",
+         "description": "OpenCode のコンテキスト圧縮で使うモデル制限を設定",
+         "editAction": "モデル Limit を編集",
+         "loading": "モデル Limit を読み込み中...",
+         "contextLabel": "Context ウィンドウ（必須）",
+         "inputLabel": "Input 制限（任意）",
+         "inputHint": "空欄の場合、input フィールドは書き込まれません。",
+         "outputLabel": "Output 制限（必須）",
+         "contextRequired": "context を入力してください。",
+         "contextInvalid": "context は 0 より大きい整数である必要があります。",
+         "inputInvalid": "input は 0 より大きい整数、または空欄にしてください。",
+         "outputRequired": "output を入力してください。",
+         "outputInvalid": "output は 0 より大きい整数である必要があります。",
+         "invalidForm": "モデル制限の値を確認してください。",
+         "loadError": "モデル Limit の読み込みに失敗しました",
+         "saveError": "モデル Limit の保存に失敗しました"
+       }
+     }
