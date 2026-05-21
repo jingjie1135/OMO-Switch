@@ -48,11 +48,13 @@ interface PreloadState {
     validating: boolean;
     loading: boolean;
     error: string | null;
+    stale: boolean;
   };
   versions: {
     data: VersionInfo[] | null;
     loading: boolean;
     error: string | null;
+    stale: boolean;
   };
   isPreloading: boolean;
   preloadComplete: boolean;
@@ -60,10 +62,16 @@ interface PreloadState {
   _modelsRefreshing: boolean;
   _omoConfigRefreshing: boolean;
   _versionsRefreshing: boolean;
+  _modelsEnsuredThisSession: boolean;
+  _versionsEnsuredThisSession: boolean;
   startPreload: () => void;
   loadOmoConfig: () => Promise<void>;
   refreshModels: () => Promise<void>;
+  ensureModelsFresh: () => Promise<void>;
+  markModelsStale: () => void;
   refreshVersions: () => Promise<void>;
+  ensureVersionsFresh: () => Promise<void>;
+  markVersionsStale: () => void;
   softRefreshAll: () => void;
   retryAll: () => void;
   // 更新 omoConfig 中特定 agent 或 category 的配置
@@ -94,12 +102,14 @@ export const usePreloadStore = create<PreloadState>()(
     validating: false,
     loading: false,
     error: null,
+    stale: false,
   },
 
   versions: {
     data: null,
     loading: false,
     error: null,
+    stale: false,
   },
 
   isPreloading: false,
@@ -109,6 +119,8 @@ export const usePreloadStore = create<PreloadState>()(
   _modelsRefreshing: false,
   _omoConfigRefreshing: false,
   _versionsRefreshing: false,
+  _modelsEnsuredThisSession: false,
+  _versionsEnsuredThisSession: false,
 
   startPreload: async () => {
     const state = get();
@@ -148,7 +160,7 @@ export const usePreloadStore = create<PreloadState>()(
 
       // 首屏渲染后再后台刷新模型/版本，避免启动阶段堆积重任务
       setTimeout(() => {
-        Promise.allSettled([get().refreshModels(), get().refreshVersions()]);
+        Promise.allSettled([get().ensureModelsFresh(), get().ensureVersionsFresh()]);
       }, 1200);
     } finally {
       set({ isPreloading: false, preloadComplete: true });
@@ -209,6 +221,7 @@ refreshModels: async () => {
   if (isFirstLoad) {
     set({
       _modelsRefreshing: true,
+      _modelsEnsuredThisSession: true,
       models: {
         grouped: null,
         providers: [],
@@ -218,11 +231,12 @@ refreshModels: async () => {
         validatedAt: null,
         validating: false,
         loading: true,
-        error: null
+        error: null,
+        stale: state.models.stale === true,
       }
     });
   } else {
-    set({ _modelsRefreshing: true });
+    set({ _modelsRefreshing: true, _modelsEnsuredThisSession: true });
   }
 
   try {
@@ -251,7 +265,8 @@ refreshModels: async () => {
         validatedAt: null,
         validating: true,
         loading: false,
-        error: null
+        error: null,
+        stale: false,
       },
       _modelsRefreshing: false,
     });
@@ -281,7 +296,8 @@ refreshModels: async () => {
             validatedAt: modelsResult.validated_at,
             validating: false,
             loading: false,
-            error: null
+            error: null,
+            stale: false,
           },
         }));
       })
@@ -292,6 +308,7 @@ refreshModels: async () => {
             validating: false,
             source: 'cache_fallback',
             fallbackReason: error instanceof Error ? error.message : '模型校验失败',
+            stale: false,
           },
         }));
       });
@@ -317,11 +334,28 @@ refreshModels: async () => {
         ...current.models,
         validating: false,
         loading: false,
-        error: error instanceof Error ? error.message : '加载模型数据失败'
+        error: error instanceof Error ? error.message : '加载模型数据失败',
+        stale: false,
       },
       _modelsRefreshing: false,
     }));
   }
+},
+
+ensureModelsFresh: async () => {
+  const state = get();
+  if (!state._modelsEnsuredThisSession || state.models.stale === true) {
+    await get().refreshModels();
+  }
+},
+
+markModelsStale: () => {
+  set((state) => ({
+    models: {
+      ...state.models,
+      stale: true,
+    },
+  }));
 },
 
 refreshVersions: async () => {
@@ -337,15 +371,24 @@ refreshVersions: async () => {
 
   // 乐观更新模式：已有数据时静默刷新，不显示 loading
   if (isFirstLoad) {
-    set({ _versionsRefreshing: true, versions: { data: null, loading: true, error: null } });
+    set({
+      _versionsRefreshing: true,
+      _versionsEnsuredThisSession: true,
+      versions: {
+        data: null,
+        loading: true,
+        error: null,
+        stale: state.versions.stale === true,
+      },
+    });
   } else {
-    set({ _versionsRefreshing: true });
+    set({ _versionsRefreshing: true, _versionsEnsuredThisSession: true });
   }
 
   try {
     const data = await checkVersions();
     set({
-      versions: { data, loading: false, error: null },
+      versions: { data, loading: false, error: null, stale: false },
       _versionsRefreshing: false,
     });
   } catch (error) {
@@ -353,20 +396,37 @@ refreshVersions: async () => {
       versions: {
         ...current.versions,
         loading: false,
-        error: error instanceof Error ? error.message : '检测版本信息失败'
+        error: error instanceof Error ? error.message : '检测版本信息失败',
+        stale: false,
       },
       _versionsRefreshing: false,
     }));
   }
 },
 
+ensureVersionsFresh: async () => {
+  const state = get();
+  if (!state._versionsEnsuredThisSession || state.versions.stale === true) {
+    await get().refreshVersions();
+  }
+},
+
+markVersionsStale: () => {
+  set((state) => ({
+    versions: {
+      ...state.versions,
+      stale: true,
+    },
+  }));
+},
+
 // 软刷新所有数据（非阻塞后台刷新，用于页面进入时）
 softRefreshAll: () => {
-  // 并行调用三个刷新方法，全部为非阻塞后台刷新
+  // 页面进入仅补齐缺失/失效数据，避免重复触发外部命令
   Promise.allSettled([
     get().loadOmoConfig(),
-    get().refreshModels(),
-    get().refreshVersions(),
+    get().ensureModelsFresh(),
+    get().ensureVersionsFresh(),
   ]);
 },
 
@@ -497,8 +557,14 @@ updateAgentInConfig: (agentName: string, config: AgentConfig) => {
       validating: false,
       loading: false,
       error: null,
+      stale: state.models.stale === true,
     },
-    versions: { data: state.versions.data, loading: false, error: null },
+    versions: {
+      data: state.versions.data,
+      loading: false,
+      error: null,
+      stale: state.versions.stale === true,
+    },
   }),
 }
   )
