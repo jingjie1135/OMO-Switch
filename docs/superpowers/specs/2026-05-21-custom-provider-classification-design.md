@@ -57,13 +57,14 @@ No `omo_custom` marker will be written to `opencode.json`. Providers manually ad
 
 `ProviderInfo.is_builtin` will be derived from custom-provider detection rather than local preset membership:
 
-- Build a built-in provider ID set from OpenCode's provider catalog source. The practical sources, in priority order, are:
-  1. a successful `opencode models` / model verification result grouped by provider;
-  2. the raw OpenCode provider-model cache loaded by `provider_store::read_provider_models()`;
-  3. OMO-Switch's bundled `src-tauri/presets/providers.json` as metadata fallback only.
+- Build a built-in provider ID set from OpenCode's provider catalog metadata. The practical sources, in priority order, are:
+  1. the raw OpenCode provider-model cache loaded by `provider_store::read_provider_models()`, but only provider entries that carry catalog metadata such as non-empty API URL, provider-specific npm package, model family, release date, or a display name that differs from the model ID;
+  2. OMO-Switch's bundled `src-tauri/presets/providers.json` as metadata fallback only.
 - If a provider ID is present in the built-in provider ID set, it is built-in: `is_builtin = true`.
 - If a provider ID is present under `opencode.json.provider` and absent from the built-in provider ID set, it is custom: `is_builtin = false`.
 - Otherwise, providers discovered only from caches or auth data are treated as built-in/known, not custom.
+
+Do not use a successful `opencode models` / `verified-provider-models.json` result as built-in-provider truth. That output represents currently available providers and can include user-defined config providers such as `mirror0425`; using it as catalog truth would incorrectly reclassify real custom providers as built-in.
 
 The local `providers.json` remains useful for metadata such as display name, npm package, and website URL, but it is no longer the source of truth for built-in classification.
 
@@ -109,7 +110,7 @@ The add-model modal will become a manual entry form:
   - Prevent adding a duplicate model ID already present under the same provider.
 - Save behavior:
   - Call existing `addCustomModel(providerId, modelId)`.
-  - Backend writes `provider.<providerId>.models.<modelId> = {}` if missing.
+  - Backend requires `provider.<providerId>` to already exist, creates `models` under that provider if needed, and writes `provider.<providerId>.models.<modelId> = {}` if the model is missing.
   - Refresh model data after success.
 
 The modal will no longer receive or browse `providerModels` from other providers.
@@ -118,7 +119,7 @@ The modal will no longer receive or browse `providerModels` from other providers
 
 1. `ProviderPage` calls `getProviderStatus()`.
 2. Rust `provider_service::get_provider_status()` aggregates provider IDs from presets, provider model cache, connected providers, auth data, and OpenCode config.
-3. Rust builds the OpenCode built-in provider ID set from the available model verification/cache data and local metadata fallback.
+3. Rust builds the OpenCode built-in provider ID set from catalog-like provider-model cache metadata and local metadata fallback.
 4. For each provider ID, Rust checks whether it is configured under `opencode.json.provider` and absent from the built-in provider ID set.
 5. Rust returns `ProviderInfo.is_builtin` based on that custom-provider check.
 6. Provider configuration UI uses `is_builtin` for tags and grouping.
