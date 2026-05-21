@@ -167,26 +167,34 @@ pub fn add_custom_provider(
 
 #[tauri::command]
 pub fn add_custom_model(provider_id: String, model_id: String) -> Result<(), String> {
+    let provider_id = provider_id.trim().to_string();
+    if provider_id.is_empty() {
+        return Err("供应商 ID 不能为空".to_string());
+    }
+
+    let model_id = model_id.trim().to_string();
+    if model_id.is_empty() {
+        return Err("模型 ID 不能为空".to_string());
+    }
+
     let mut config = provider_store::read_opencode_config()?;
+    let providers = config
+        .get_mut("provider")
+        .and_then(Value::as_object_mut)
+        .ok_or("配置文件中不存在 provider 字段")?;
+    let provider = providers
+        .get_mut(&provider_id)
+        .ok_or(format!("供应商 {} 不存在", provider_id))?;
+    let provider_config = provider
+        .as_object_mut()
+        .ok_or(format!("供应商 {} 配置格式错误", provider_id))?;
+    let models = provider_config
+        .entry("models".to_string())
+        .or_insert_with(|| json!({}))
+        .as_object_mut()
+        .ok_or("models 字段格式错误")?;
 
-    if config.get("provider").is_none() {
-        config["provider"] = json!({});
-    }
-
-    if config["provider"].get(&provider_id).is_none() {
-        config["provider"][&provider_id] = json!({});
-    }
-
-    if config["provider"][&provider_id].get("models").is_none() {
-        config["provider"][&provider_id]["models"] = json!({});
-    }
-
-    if config["provider"][&provider_id]["models"]
-        .get(&model_id)
-        .is_none()
-    {
-        config["provider"][&provider_id]["models"][&model_id] = json!({});
-    }
+    models.entry(model_id).or_insert_with(|| json!({}));
 
     provider_store::write_opencode_config(&config)?;
     Ok(())
@@ -691,6 +699,11 @@ mod tests {
             std::env::set_var("USERPROFILE", &temp_dir);
         }
 
+        write_opencode_fixture(
+            &temp_dir,
+            r#"{"provider":{"test-provider":{"npm":"@ai-sdk/openai-compatible"}}}"#,
+        );
+
         let result = add_custom_model("test-provider".to_string(), "test-model-1".to_string());
 
         unsafe {
@@ -735,6 +748,11 @@ mod tests {
             std::env::set_var("USERPROFILE", &temp_dir);
         }
 
+        write_opencode_fixture(
+            &temp_dir,
+            r#"{"provider":{"test-provider":{"npm":"@ai-sdk/openai-compatible"}}}"#,
+        );
+
         let result1 = add_custom_model("test-provider".to_string(), "test-model-2".to_string());
         assert!(result1.is_ok());
         let result2 = add_custom_model("test-provider".to_string(), "test-model-2".to_string());
@@ -771,6 +789,57 @@ mod tests {
 
     #[test]
     #[serial]
+    fn test_add_custom_model_trims_model_id() {
+        with_temp_home("omo_test_add_model_trim", |temp_dir| {
+            write_opencode_fixture(
+                temp_dir,
+                r#"{"provider":{"test-provider":{"npm":"@ai-sdk/openai-compatible"}}}"#,
+            );
+
+            let result =
+                add_custom_model("test-provider".to_string(), "  spaced-model  ".to_string());
+
+            assert!(result.is_ok(), "添加模型应该成功: {:?}", result.err());
+
+            let config = read_opencode_fixture(temp_dir);
+            let models = config["provider"]["test-provider"]["models"]
+                .as_object()
+                .unwrap();
+            assert!(models.contains_key("spaced-model"));
+            assert!(!models.contains_key("  spaced-model  "));
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn test_add_custom_model_rejects_empty_model_id() {
+        with_temp_home("omo_test_add_model_empty", |_| {
+            let error = add_custom_model("test-provider".to_string(), "   ".to_string())
+                .expect_err("空模型 ID 应该失败");
+
+            assert!(error.contains("模型 ID"));
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn test_add_custom_model_rejects_missing_provider() {
+        with_temp_home("omo_test_add_model_missing_provider", |temp_dir| {
+            write_opencode_fixture(
+                temp_dir,
+                r#"{"provider":{"other-provider":{"npm":"@ai-sdk/openai-compatible"}}}"#,
+            );
+
+            let error = add_custom_model("missing-provider".to_string(), "test-model".to_string())
+                .expect_err("缺失供应商应该失败");
+
+            assert!(error.contains("missing-provider"));
+            assert!(error.contains("不存在"));
+        });
+    }
+
+    #[test]
+    #[serial]
     fn test_remove_custom_model() {
         let temp_dir = std::env::temp_dir().join("omo_test_remove_model");
         let _ = std::fs::remove_dir_all(&temp_dir);
@@ -782,6 +851,11 @@ mod tests {
             std::env::set_var("HOME", &temp_dir);
             std::env::set_var("USERPROFILE", &temp_dir);
         }
+
+        write_opencode_fixture(
+            &temp_dir,
+            r#"{"provider":{"test-provider":{"npm":"@ai-sdk/openai-compatible"}}}"#,
+        );
 
         let add_result = add_custom_model("test-provider".to_string(), "test-model-3".to_string());
         assert!(add_result.is_ok());
@@ -834,6 +908,11 @@ mod tests {
             std::env::set_var("HOME", &temp_dir);
             std::env::set_var("USERPROFILE", &temp_dir);
         }
+
+        write_opencode_fixture(
+            &temp_dir,
+            r#"{"provider":{"test-provider":{"npm":"@ai-sdk/openai-compatible"}}}"#,
+        );
 
         let _ = add_custom_model("test-provider".to_string(), "existing-model".to_string());
         let result =
