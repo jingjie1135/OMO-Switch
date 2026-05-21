@@ -17,7 +17,12 @@ import {
   SlidersHorizontal,
 } from 'lucide-react';
 import { cn } from '../common/cn';
-import { getCustomModels, removeCustomModel } from '../../services/tauri';
+import {
+  getCustomModels,
+  getProviderStatus,
+  removeCustomModel,
+  type ProviderInfo,
+} from '../../services/tauri';
 import { usePreloadStore } from '../../store/preloadStore';
 
 const removeProviderModel = (provider: string, modelId: string) => {
@@ -33,9 +38,11 @@ import { ProviderStatusSkeleton } from '../common/Skeleton';
  * 供应商状态接口
  */
 interface ProviderStatus {
+  id: string;
   name: string;
   isConnected: boolean;
   modelCount: number;
+  isBuiltin: boolean;
 }
 
 type GroupedProviderModels = { provider: string; models: string[] };
@@ -89,12 +96,11 @@ function getProviderColor(provider: string): string {
 interface ProviderCardProps {
   provider: ProviderStatus;
   models?: string[];
-  providerModels: Record<string, string[]>;
   customModels: string[];
   onModelAdded: () => void;
 }
 
-function ProviderCard({ provider, models, providerModels, customModels, onModelAdded }: ProviderCardProps) {
+function ProviderCard({ provider, models, customModels, onModelAdded }: ProviderCardProps) {
   const { t } = useTranslation();
   const [isExpanded, setIsExpanded] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -126,18 +132,18 @@ function ProviderCard({ provider, models, providerModels, customModels, onModelA
 
   const handleLimitClick = (e: React.MouseEvent, model: string) => {
     e.stopPropagation();
-    setLimitModal({ provider: provider.name, model });
+    setLimitModal({ provider: provider.id, model });
   };
 
   const handleConfirmDelete = async () => {
     if (!deleteConfirm.model) return;
     try {
       setIsDeleting(true);
-      await removeCustomModel(provider.name, deleteConfirm.model);
+      await removeCustomModel(provider.id, deleteConfirm.model);
       setDeleteConfirm({ model: '', isOpen: false });
       
       // 本地更新 store，无需重新加载
-      removeProviderModel(provider.name, deleteConfirm.model);
+      removeProviderModel(provider.id, deleteConfirm.model);
     } catch {
     } finally {
       setIsDeleting(false);
@@ -149,6 +155,7 @@ function ProviderCard({ provider, models, providerModels, customModels, onModelA
   };
 
   const isCustomModel = (model: string) => customModels.includes(model);
+  const canAddCustomModel = !provider.isBuiltin;
 
   return (
     <>
@@ -247,7 +254,7 @@ function ProviderCard({ provider, models, providerModels, customModels, onModelA
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        setApplyModal({ provider: provider.name, model });
+                        setApplyModal({ provider: provider.id, model });
                       }}
                       className="w-4 h-4 flex items-center justify-center rounded-full opacity-0 group-hover:opacity-100 hover:bg-indigo-100 text-slate-400 hover:text-indigo-600 transition-all"
                       title="应用到 Agents"
@@ -284,7 +291,7 @@ function ProviderCard({ provider, models, providerModels, customModels, onModelA
                 </span>
               ))}
             </div>
-            {provider.isConnected && (
+            {canAddCustomModel && (
               <button
                 onClick={handleAddModelClick}
                 className={cn(
@@ -301,7 +308,7 @@ function ProviderCard({ provider, models, providerModels, customModels, onModelA
           </div>
         )}
 
-        {isExpanded && (!models || models.length === 0) && provider.isConnected && (
+        {isExpanded && (!models || models.length === 0) && canAddCustomModel && (
           <div className="mt-3 pt-3 border-t border-slate-200">
             <div className="text-xs text-slate-500 mb-2">{t('providerStatus.models')}</div>
             <button
@@ -323,8 +330,8 @@ function ProviderCard({ provider, models, providerModels, customModels, onModelA
       <AddModelModal
         isOpen={isModalOpen}
         onClose={handleCloseModal}
-        currentProviderId={provider.name}
-        providerModels={providerModels}
+        currentProviderId={provider.id}
+        existingModels={models ?? []}
         onModelAdded={onModelAdded}
       />
 
@@ -445,9 +452,8 @@ function ProviderGroup({
                 <ProviderCard
                   key={provider.name}
                   provider={provider}
-                  models={providerModels[provider.name] ?? []}
-                  providerModels={providerModels}
-                  customModels={customModels[provider.name] ?? []}
+                  models={providerModels[provider.id] ?? []}
+                  customModels={customModels[provider.id] ?? []}
                   onModelAdded={onModelAdded}
                 />
               ))}
@@ -480,6 +486,10 @@ export function ProviderStatus() {
     {}
   );
   const [customModelsLoaded, setCustomModelsLoaded] = useState(false);
+  const [providerBuiltinById, setProviderBuiltinById] = useState<Record<string, boolean>>(
+    {}
+  );
+  const [providerStatusLoaded, setProviderStatusLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -505,12 +515,23 @@ export function ProviderStatus() {
       // ignore cache parse error
     }
 
+    function mapProviderBuiltinStatus(providers: ProviderInfo[]): Record<string, boolean> {
+      return Object.fromEntries(
+        providers.map((provider) => [provider.id.toLowerCase(), provider.is_builtin])
+      );
+    }
+
     async function loadCustomModels() {
       try {
         setError(null);
-        const customModels = await getCustomModels();
+        const [customModels, providerStatus] = await Promise.all([
+          getCustomModels(),
+          getProviderStatus(),
+        ]);
         setCustomModelsData(customModels);
+        setProviderBuiltinById(mapProviderBuiltinStatus(providerStatus));
         setCustomModelsLoaded(true);
+        setProviderStatusLoaded(true);
         localStorage.setItem(CUSTOM_MODELS_CACHE_KEY, JSON.stringify(customModels));
       } catch (err) {
         if (!hasLocalCache) {
@@ -519,6 +540,7 @@ export function ProviderStatus() {
           );
         }
         setCustomModelsLoaded(true);
+        setProviderStatusLoaded(true);
       }
     }
 
@@ -528,22 +550,27 @@ export function ProviderStatus() {
   // 构建供应商状态数据
   function buildProviderStatus(
     groupedModels: { provider: string; models: string[] }[],
-    connectedProviders: string[]
+    connectedProviders: string[],
+    providerBuiltinById: Record<string, boolean>
   ): ProviderStatus[] {
     const connectedSet = new Set(connectedProviders.map((p) => p.toLowerCase()));
     const fromGrouped = groupedModels.map((group) => ({
+      id: group.provider,
       name: group.provider,
       isConnected: connectedSet.has(group.provider.toLowerCase()),
       modelCount: group.models.length,
+      isBuiltin: providerBuiltinById[group.provider.toLowerCase()] ?? true,
     }));
 
     const existing = new Set(fromGrouped.map((item) => item.name.toLowerCase()));
     const connectedOnly = connectedProviders
       .filter((provider) => !existing.has(provider.toLowerCase()))
       .map((provider) => ({
+        id: provider,
         name: provider,
         isConnected: true,
         modelCount: 0,
+        isBuiltin: providerBuiltinById[provider.toLowerCase()] ?? true,
       }));
 
     return [...fromGrouped, ...connectedOnly].sort((a, b) => {
@@ -565,8 +592,8 @@ export function ProviderStatus() {
   );
 
   const providers = useMemo(
-    () => buildProviderStatus(grouped, connectedProviderIds || []),
-    [grouped, connectedProviderIds]
+    () => buildProviderStatus(grouped, connectedProviderIds || [], providerBuiltinById),
+    [grouped, connectedProviderIds, providerBuiltinById]
   );
 
   const { connected, notConnected } = useMemo(() => {
@@ -586,7 +613,9 @@ export function ProviderStatus() {
     }
   }
 
-  const initialLoading = (!groupedModels || !connectedProviderIds || !customModelsLoaded) && !error;
+  const initialLoading =
+    (!groupedModels || !connectedProviderIds || !customModelsLoaded || !providerStatusLoaded) &&
+    !error;
 
   if (error) {
     return (

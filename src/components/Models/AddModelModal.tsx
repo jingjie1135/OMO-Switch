@@ -1,9 +1,8 @@
 import { useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Plus, AlertCircle, Search } from 'lucide-react';
+import { Plus, AlertCircle } from 'lucide-react';
 import { Modal } from '../common/Modal';
 import { Button } from '../common/Button';
-import { cn } from '../common/cn';
 import { addCustomModel } from '../../services/tauri';
 
 interface AddModelModalProps {
@@ -11,7 +10,7 @@ interface AddModelModalProps {
   onClose: () => void;
   currentProviderId: string;
   onModelAdded: () => void;
-  providerModels: Record<string, string[]>;
+  existingModels: string[];
 }
 
 export function AddModelModal({
@@ -19,52 +18,46 @@ export function AddModelModal({
   onClose,
   currentProviderId,
   onModelAdded,
-  providerModels,
+  existingModels,
 }: AddModelModalProps) {
   const { t } = useTranslation();
   const [isAdding, setIsAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [modelId, setModelId] = useState('');
 
-  const availableModels = useMemo(() => {
-    const models: Array<{ modelId: string; providerName: string }> = [];
+  const existingModelSet = useMemo(
+    () => new Set(existingModels.map((model) => model.trim()).filter(Boolean)),
+    [existingModels]
+  );
 
-    Object.entries(providerModels).forEach(([providerName, modelList]) => {
-      if (providerName.toLowerCase() === currentProviderId.toLowerCase()) {
-        return;
-      }
+  const handleClose = () => {
+    setModelId('');
+    setError(null);
+    onClose();
+  };
 
-      modelList.forEach((modelId) => {
-        models.push({
-          modelId,
-          providerName,
-        });
-      });
-    });
+  const handleAddModel = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
 
-    return models;
-  }, [providerModels, currentProviderId]);
+    const trimmedModelId = modelId.trim();
+    if (!trimmedModelId) {
+      setError(t('customModel.modelIdRequired'));
+      return;
+    }
+    if (existingModelSet.has(trimmedModelId)) {
+      setError(t('customModel.modelAlreadyExists'));
+      return;
+    }
 
-  const filteredModels = useMemo(() => {
-    if (!searchQuery.trim()) return availableModels;
-    const query = searchQuery.toLowerCase();
-    return availableModels.filter(
-      ({ modelId, providerName }) =>
-        modelId.toLowerCase().includes(query) ||
-        providerName.toLowerCase().includes(query)
-    );
-  }, [availableModels, searchQuery]);
-
-  const handleAddModel = async (modelId: string) => {
     try {
       setIsAdding(true);
       setError(null);
 
-      await addCustomModel(currentProviderId, modelId);
+      await addCustomModel(currentProviderId, trimmedModelId);
 
       onModelAdded();
 
-      onClose();
+      handleClose();
     } catch (err) {
       setError(
         err instanceof Error ? err.message : t('customModel.addModelError')
@@ -74,32 +67,16 @@ export function AddModelModal({
     }
   };
 
-  const getProviderColor = (provider: string): string => {
-    const colors: Record<string, string> = {
-      openai: 'bg-emerald-500',
-      anthropic: 'bg-orange-500',
-      google: 'bg-blue-500',
-      groq: 'bg-pink-500',
-      together: 'bg-purple-500',
-      cohere: 'bg-teal-500',
-      mistral: 'bg-indigo-500',
-      aicodewith: 'bg-rose-500',
-      'kimi-for-coding': 'bg-amber-500',
-    };
-
-    return colors[provider.toLowerCase()] || 'bg-slate-500';
-  };
-
   return (
     <Modal
       isOpen={isOpen}
-      onClose={onClose}
-      title={t('customModel.addModel')}
-      size="lg"
+      onClose={handleClose}
+      title={t('customModel.addCustomModel')}
+      size="md"
     >
-      <div className="space-y-4">
+      <form onSubmit={handleAddModel} className="space-y-4">
         <p className="text-sm text-slate-600">
-          {t('customModel.selectModelToAdd')}
+          {t('customModel.manualEntryDescription')}
         </p>
 
         {error && (
@@ -109,68 +86,35 @@ export function AddModelModal({
           </div>
         )}
 
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+        <div className="space-y-2">
+          <label
+            htmlFor="custom-model-id"
+            className="text-sm font-medium text-slate-700"
+          >
+            {t('customModel.modelIdLabel')}
+          </label>
           <input
+            id="custom-model-id"
             type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder={t('customModel.searchPlaceholder')}
-            className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-300"
+            value={modelId}
+            onChange={(event) => setModelId(event.target.value)}
+            placeholder={t('customModel.modelIdPlaceholder')}
+            autoFocus
+            disabled={isAdding}
+            className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-300 disabled:bg-slate-50 disabled:text-slate-400"
           />
         </div>
 
-        {filteredModels.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-8 text-center">
-            <div className="w-12 h-12 bg-slate-100 rounded-xl flex items-center justify-center mb-3">
-              <AlertCircle className="w-6 h-6 text-slate-400" />
-            </div>
-            <p className="text-slate-500 text-sm">
-              {t('customModel.noModelsAvailable')}
-            </p>
-          </div>
-        ) : (
-          <div className="max-h-[400px] overflow-y-auto space-y-2 pr-1">
-            {filteredModels.map(({ modelId, providerName }) => (
-              <button
-                key={`${providerName}-${modelId}`}
-                onClick={() => handleAddModel(modelId)}
-                disabled={isAdding}
-                className={cn(
-                  'w-full flex items-center gap-3 p-3 rounded-lg border transition-all text-left',
-                  'hover:border-emerald-300 hover:bg-emerald-50/50',
-                  'focus:outline-none focus:ring-2 focus:ring-emerald-500/20',
-                  isAdding && 'opacity-50 cursor-not-allowed'
-                )}
-              >
-                <div
-                  className={cn(
-                    'w-3 h-3 rounded-full flex-shrink-0',
-                    getProviderColor(providerName)
-                  )}
-                />
-
-                <div className="flex-1 min-w-0">
-                  <span className="text-sm font-medium text-slate-700 truncate block">
-                    {modelId}
-                  </span>
-                  <span className="text-xs text-slate-500">
-                    {providerName}
-                  </span>
-                </div>
-
-                <Plus className="w-4 h-4 text-slate-400 flex-shrink-0" />
-              </button>
-            ))}
-          </div>
-        )}
-
-        <div className="flex justify-end pt-4 border-t border-slate-100">
-          <Button variant="ghost" onClick={onClose} disabled={isAdding}>
+        <div className="flex justify-end gap-2 pt-4 border-t border-slate-100">
+          <Button type="button" variant="ghost" onClick={handleClose} disabled={isAdding}>
             {t('button.cancel')}
           </Button>
+          <Button type="submit" isLoading={isAdding}>
+            <Plus className="w-4 h-4 mr-2" />
+            {t('customModel.addModel')}
+          </Button>
         </div>
-      </div>
+      </form>
     </Modal>
   );
 }
