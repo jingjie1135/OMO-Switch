@@ -7,6 +7,7 @@ import { Modal } from '../common/Modal';
 import { toast } from '../common/Toast';
 import { loadPreset, savePreset, saveConfigSnapshot, setActivePreset as persistActivePreset } from '../../services/tauri';
 import { usePresetStore } from '../../store/presetStore';
+import { usePreloadStore } from '../../store/preloadStore';
 
 interface PresetSelectorProps {
   onLoadPreset?: () => void;
@@ -27,6 +28,7 @@ export function PresetSelector({ onLoadPreset, compact }: PresetSelectorProps) {
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [newPresetName, setNewPresetName] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const markModelsStale = usePreloadStore((s) => s.markModelsStale);
   
   // Compact mode dropdown state
   const [showDropdown, setShowDropdown] = useState(false);
@@ -52,6 +54,7 @@ export function PresetSelector({ onLoadPreset, compact }: PresetSelectorProps) {
     try {
       await loadPreset(value);
       await saveConfigSnapshot();
+      markModelsStale();
       setActivePreset(value);
       toast.success(
         t('presetSelector.switchSuccess', {

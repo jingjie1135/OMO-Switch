@@ -23,6 +23,7 @@ import { usePreloadStore } from '../../store/preloadStore';
 export function ImportExportPanel() {
   const { t } = useTranslation();
   const loadOmoConfig = usePreloadStore((s) => s.loadOmoConfig);
+  const markModelsStale = usePreloadStore((s) => s.markModelsStale);
   const [history, setHistory] = useState<BackupInfo[]>([]);
   const [actionLoading, setActionLoading] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(true);
@@ -141,6 +142,7 @@ export function ImportExportPanel() {
       setPreviewModal(false);
 
       await importOmoConfig(importPath);
+      markModelsStale();
       setSuccess(t('importExport.importSuccess'));
       await loadHistory();
       await loadOmoConfig().catch(() => {
@@ -175,6 +177,7 @@ export function ImportExportPanel() {
       setError(null);
       setSuccess(null);
       await restoreBackup(backup.path);
+      markModelsStale();
       setSuccess(
         t('importExport.restoreBackupSuccess', {
           name: backup.filename,
