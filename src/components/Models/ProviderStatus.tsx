@@ -14,6 +14,7 @@ import {
   Zap,
   Loader2,
   AlertCircle,
+  SlidersHorizontal,
 } from 'lucide-react';
 import { cn } from '../common/cn';
 import { getCustomModels, removeCustomModel } from '../../services/tauri';
@@ -24,6 +25,7 @@ const removeProviderModel = (provider: string, modelId: string) => {
 };
 import { AddModelModal } from './AddModelModal';
 import { ApplyModelModal } from './ApplyModelModal';
+import { ModelLimitModal } from './ModelLimitModal';
 import { ConfirmPopover } from '../common/ConfirmPopover';
 import { ProviderStatusSkeleton } from '../common/Skeleton';
 
@@ -102,6 +104,7 @@ function ProviderCard({ provider, models, providerModels, customModels, onModelA
   });
   const [isDeleting, setIsDeleting] = useState(false);
   const [applyModal, setApplyModal] = useState<{ provider: string; model: string } | null>(null);
+  const [limitModal, setLimitModal] = useState<{ provider: string; model: string } | null>(null);
 
   const handleToggle = () => {
     setIsExpanded(!isExpanded);
@@ -119,6 +122,11 @@ function ProviderCard({ provider, models, providerModels, customModels, onModelA
   const handleDeleteClick = (e: React.MouseEvent, model: string) => {
     e.stopPropagation();
     setDeleteConfirm({ model, isOpen: true });
+  };
+
+  const handleLimitClick = (e: React.MouseEvent, model: string) => {
+    e.stopPropagation();
+    setLimitModal({ provider: provider.name, model });
   };
 
   const handleConfirmDelete = async () => {
@@ -251,6 +259,13 @@ function ProviderCard({ provider, models, providerModels, customModels, onModelA
                   {isCustomModel(model) && (
                     <>
                       <button
+                        onClick={(e) => handleLimitClick(e, model)}
+                        className="w-4 h-4 flex items-center justify-center rounded-full hover:bg-indigo-100 text-slate-400 hover:text-indigo-600 transition-colors"
+                        title={t('modelLimit.editAction')}
+                      >
+                        <SlidersHorizontal className="w-3 h-3" />
+                      </button>
+                      <button
                         onClick={(e) => handleDeleteClick(e, model)}
                         disabled={isDeleting}
                         className="w-4 h-4 flex items-center justify-center rounded-full hover:bg-slate-200 text-slate-400 hover:text-rose-500 transition-colors"
@@ -319,6 +334,15 @@ function ProviderCard({ provider, models, providerModels, customModels, onModelA
           onClose={() => setApplyModal(null)}
           provider={applyModal.provider}
           modelName={applyModal.model}
+        />
+      )}
+
+      {limitModal && (
+        <ModelLimitModal
+          isOpen={true}
+          onClose={() => setLimitModal(null)}
+          providerId={limitModal.provider}
+          modelId={limitModal.model}
         />
       )}
     </>
