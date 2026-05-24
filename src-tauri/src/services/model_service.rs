@@ -4,9 +4,9 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::env;
+use std::ffi::OsString;
 use std::fs;
-use std::path::Path;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
@@ -174,22 +174,94 @@ fn get_opencode_models_total_timeout_secs() -> u64 {
 }
 
 fn build_opencode_path_env() -> Option<String> {
-    let opencode_bin = path_service::user_home_dir()
-        .ok()?
-        .join(".opencode")
-        .join("bin");
-    let opencode_bin_str = opencode_bin.to_string_lossy().to_string();
+    let dirs = common_opencode_binary_dirs();
     let current_path = env::var("PATH").unwrap_or_default();
-    if current_path
-        .split(':')
-        .any(|p| p == opencode_bin.as_os_str().to_string_lossy())
-    {
-        Some(current_path)
-    } else if current_path.is_empty() {
-        Some(opencode_bin_str)
-    } else {
-        Some(format!("{}:{}", opencode_bin_str, current_path))
+
+    let mut parts: Vec<String> = dirs
+        .into_iter()
+        .map(|dir| dir.to_string_lossy().to_string())
+        .filter(|dir| {
+            !current_path
+                .split(if cfg!(windows) { ';' } else { ':' })
+                .any(|part| part == dir)
+        })
+        .collect();
+
+    if !current_path.is_empty() {
+        parts.push(current_path);
     }
+
+    Some(parts.join(if cfg!(windows) { ";" } else { ":" }))
+}
+
+fn command_names(base: &str) -> Vec<String> {
+    if cfg!(windows) {
+        vec![
+            format!("{}.exe", base),
+            format!("{}.cmd", base),
+            format!("{}.bat", base),
+            base.to_string(),
+        ]
+    } else {
+        vec![base.to_string()]
+    }
+}
+
+fn push_unique_path(paths: &mut Vec<PathBuf>, seen: &mut HashSet<OsString>, path: PathBuf) {
+    if seen.insert(path.as_os_str().to_os_string()) {
+        paths.push(path);
+    }
+}
+
+fn common_opencode_binary_dirs() -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    let mut seen = HashSet::new();
+
+    if let Ok(home) = path_service::user_home_dir() {
+        push_unique_path(&mut dirs, &mut seen, home.join(".opencode").join("bin"));
+        push_unique_path(&mut dirs, &mut seen, home.join(".bun").join("bin"));
+        push_unique_path(&mut dirs, &mut seen, home.join(".local").join("bin"));
+        push_unique_path(&mut dirs, &mut seen, home.join("scoop").join("shims"));
+
+        if cfg!(windows) {
+            push_unique_path(
+                &mut dirs,
+                &mut seen,
+                home.join("AppData").join("Roaming").join("npm"),
+            );
+            push_unique_path(
+                &mut dirs,
+                &mut seen,
+                home.join("AppData").join("Local").join("pnpm"),
+            );
+        }
+    }
+
+    if let Some(appdata) = path_service::non_empty_env_path("APPDATA") {
+        push_unique_path(&mut dirs, &mut seen, appdata.join("npm"));
+    }
+    if let Some(localappdata) = path_service::non_empty_env_path("LOCALAPPDATA") {
+        push_unique_path(&mut dirs, &mut seen, localappdata.join("pnpm"));
+        push_unique_path(
+            &mut dirs,
+            &mut seen,
+            localappdata.join("Microsoft").join("WinGet").join("Links"),
+        );
+    }
+    if let Some(pnpm_home) = path_service::non_empty_env_path("PNPM_HOME") {
+        push_unique_path(&mut dirs, &mut seen, pnpm_home);
+    }
+    if let Some(bun_install) = path_service::non_empty_env_path("BUN_INSTALL") {
+        push_unique_path(&mut dirs, &mut seen, bun_install.join("bin"));
+    }
+    if let Some(program_files) = path_service::non_empty_env_path("ProgramFiles") {
+        push_unique_path(&mut dirs, &mut seen, program_files.join("nodejs"));
+    }
+    if let Some(program_files_x86) = path_service::non_empty_env_path("ProgramFiles(x86)") {
+        push_unique_path(&mut dirs, &mut seen, program_files_x86.join("nodejs"));
+    }
+
+    dirs
 }
 
 fn build_opencode_candidates() -> Vec<String> {
@@ -209,10 +281,12 @@ fn build_opencode_candidates() -> Vec<String> {
         }
     }
 
-    if let Ok(home) = path_service::user_home_dir() {
-        let home_candidate = home.join(".opencode").join("bin").join("opencode");
-        if home_candidate.exists() {
-            push_unique(home_candidate.to_string_lossy().to_string());
+    for dir in common_opencode_binary_dirs() {
+        for name in command_names("opencode") {
+            let candidate = dir.join(name);
+            if candidate.exists() {
+                push_unique(candidate.to_string_lossy().to_string());
+            }
         }
     }
 
@@ -616,6 +690,108 @@ invalid-line
         assert_eq!(parsed.get("openai").map(|v| v.len()), Some(2));
         assert_eq!(parsed.get("anthropic").map(|v| v.len()), Some(1));
         assert!(!parsed.contains_key("invalid-line"));
+    }
+
+    #[test]
+    #[serial]
+    fn test_build_opencode_candidates_includes_bun_bin() {
+        let temp_dir = std::env::temp_dir().join("omo-model-opencode-bun-bin-test");
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        let bun_bin = temp_dir.join(".bun").join("bin");
+        std::fs::create_dir_all(&bun_bin).expect("创建 bun bin 目录失败");
+
+        let binary_name = if cfg!(windows) {
+            "opencode.exe"
+        } else {
+            "opencode"
+        };
+        let binary = bun_bin.join(binary_name);
+        std::fs::write(&binary, "").expect("写入 opencode mock 失败");
+
+        let original_home = std::env::var("HOME").ok();
+        let original_userprofile = std::env::var("USERPROFILE").ok();
+        unsafe {
+            std::env::set_var("HOME", &temp_dir);
+            std::env::set_var("USERPROFILE", &temp_dir);
+        }
+
+        let candidates = build_opencode_candidates();
+
+        unsafe {
+            if let Some(home) = original_home {
+                std::env::set_var("HOME", home);
+            } else {
+                std::env::remove_var("HOME");
+            }
+            if let Some(userprofile) = original_userprofile {
+                std::env::set_var("USERPROFILE", userprofile);
+            } else {
+                std::env::remove_var("USERPROFILE");
+            }
+        }
+
+        let expected = binary.to_string_lossy().to_string();
+        assert!(
+            candidates.contains(&expected),
+            "应包含 bun 安装的 opencode 候选路径，实际: {:?}",
+            candidates
+        );
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    #[serial]
+    fn test_build_opencode_path_env_uses_platform_separator() {
+        let temp_dir = std::env::temp_dir().join("omo-model-opencode-path-env-test");
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        std::fs::create_dir_all(&temp_dir).expect("创建临时目录失败");
+
+        let original_home = std::env::var("HOME").ok();
+        let original_userprofile = std::env::var("USERPROFILE").ok();
+        let original_path = std::env::var("PATH").ok();
+        unsafe {
+            std::env::set_var("HOME", &temp_dir);
+            std::env::set_var("USERPROFILE", &temp_dir);
+            std::env::set_var("PATH", "existing-bin");
+        }
+
+        let path_env = build_opencode_path_env().expect("应构造 PATH");
+
+        unsafe {
+            if let Some(home) = original_home {
+                std::env::set_var("HOME", home);
+            } else {
+                std::env::remove_var("HOME");
+            }
+            if let Some(userprofile) = original_userprofile {
+                std::env::set_var("USERPROFILE", userprofile);
+            } else {
+                std::env::remove_var("USERPROFILE");
+            }
+            if let Some(path) = original_path {
+                std::env::set_var("PATH", path);
+            } else {
+                std::env::remove_var("PATH");
+            }
+        }
+
+        let separator = if cfg!(windows) { ';' } else { ':' };
+        assert!(
+            path_env.contains(&format!("{}existing-bin", separator)),
+            "PATH 应使用平台分隔符连接，实际: {}",
+            path_env
+        );
+
+        if cfg!(windows) {
+            assert!(
+                !path_env.contains("bin:existing-bin"),
+                "Windows PATH 不应使用冒号连接，实际: {}",
+                path_env
+            );
+        }
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 
     #[test]
